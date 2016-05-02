@@ -1,2 +1,2 @@
-# CUDAFaceRecognition
+# CUDAFaceDetection
 CUDA program to locate a given face in a picture.
