@@ -178,12 +178,8 @@ __global__ void getWindowDiff(uc *imgContainer, int containerWidth,
 
     int totalDiff = 0;
     for(int y = 0; y < objectHeight; ++y)
-    {
         for(int x = 0; x < objectWidth; ++x)
-        {
             totalDiff += abs(imgContainer[y * objectWidth + x] - imgObject[y * objectWidth + x]);
-        }
-    }
 
     resultMatrix[oy * containerWidth + ox] = totalDiff / (objectWidth * objectHeight);
 }
@@ -201,21 +197,19 @@ int main(int argc, char** argv)
   unsigned int nBlocks = 65535; //SUPONIENDO QUE LAS DOS IMAGENES SON CUADRADAS!
   unsigned int step = (fc.container->width() - fc.object->width()) / nBlocks;
 
-
-  //Save two images in grayscale
-
-  int numBytesContainer = fc.container->width() * fc.container->height() * sizeof(uc);
-  int numBytesObject = fc.object->width() * fc.object->height() * sizeof(uc);
+  // Obtener Memoria en el host
   uc *h_resultDiffMatrix = (uc*) malloc(numBytesContainer);
   uc *h_containerImageGS = (uc*) malloc(numBytesContainer);
   uc *h_objectImageGS = (uc*) malloc(numBytesObject);
 
-  //Fill resultDiffMatrix with zeroes
-  for(int y = 0; y < fc.container->height(); ++y) {
-      for(int x = 0; x < fc.container->width(); ++x) {
-          h_objectImageGS[y * fc.container->width() + x] = 0;
-      }
-  }
+  //Obtiene Memoria [pinned] en el host
+  //cudaMallocHost((float**)&h_x, numBytes);
+  //cudaMallocHost((float**)&h_y, numBytes);
+  //cudaMallocHost((float**)&H_y, numBytes);   // Solo se usa para comprobar el resultado
+
+  //Save two images in grayscale
+  int numBytesContainer = fc.container->width() * fc.container->height() * sizeof(uc);
+  int numBytesObject = fc.object->width() * fc.object->height() * sizeof(uc);
 
   //Fill container image with its grayscale
   for(int y = 0; y < fc.container->height(); ++y) {
@@ -231,37 +225,29 @@ int main(int argc, char** argv)
       }
   }
 
-  // ////////////////////////////////////////
-
-
-  //Obtiene Memoria [pinned] en el host
-  //cudaMallocHost((float**)&h_x, numBytes);
-  //cudaMallocHost((float**)&h_y, numBytes);
-  //cudaMallocHost((float**)&H_y, numBytes);   // Solo se usa para comprobar el resultado
-
-
-  // Obtener Memoria en el device
+  //Fill resultDiffMatrix with zeroes
+  for(int y = 0; y < fc.container->height(); ++y) {
+      for(int x = 0; x < fc.container->width(); ++x) {
+          h_objectImageGS[y * fc.container->width() + x] = 0;
+      }
+  }
 
   //For every pixel(x,y), it contains the result of the avg diff of the window beginning in that pixel
   uc *d_resultDiffMatrix;
-  uc *d_containerImageGS; //bigger image
-  uc *d_objectImageGS;    //smaller image
+  uc *d_containerImageGS; // bigger image
+  uc *d_objectImageGS;    // smaller image
 
+  // Obtener Memoria en el device
   cudaMalloc((uc**)&d_resultDiffMatrix, numBytesContainer); //result diff matrix
   cudaMalloc((uc**)&d_containerImageGS, numBytesContainer);
   cudaMalloc((uc**)&d_objectImageGS, numBytesObject);
   CheckCudaError((char *) "Obtener Memoria en el device", __LINE__);
 
   // Copiar datos desde el host en el device
-  cudaMemcpy(d_resultDiffMatrix, h_resultDiffMatrix,
-             numBytesContainer, cudaMemcpyHostToDevice);
-  cudaMemcpy(d_containerImageGS, h_containerImageGS,
-             numBytesContainer, cudaMemcpyHostToDevice);
-  cudaMemcpy(d_objectImageGS, h_objectImageGS,
-             numBytesObject, cudaMemcpyHostToDevice);
+  cudaMemcpy(d_resultDiffMatrix, h_resultDiffMatrix, numBytesContainer, cudaMemcpyHostToDevice);
+  cudaMemcpy(d_containerImageGS, h_containerImageGS, numBytesContainer, cudaMemcpyHostToDevice);
+  cudaMemcpy(d_objectImageGS, h_objectImageGS, numBytesObject, cudaMemcpyHostToDevice);
   CheckCudaError((char *) "Copiar Datos Host --> Device", __LINE__);
-
-  // ////////////////////////////////////////
 
   // Ejecutar el kernel
   getWindowDiff<<<nBlocks, nThreads>>>(d_containerImageGS, fc.container->width(),
@@ -271,7 +257,6 @@ int main(int argc, char** argv)
 
 
   // Obtener el resultado desde el host
-  // Guardamos el resultado en H_y para poder comprobar el resultado
   cudaMemcpy(h_resultDiffMatrix, d_resultDiffMatrix, numBytesContainer, cudaMemcpyDeviceToHost);
   CheckCudaError((char *) "Copiar Datos Device --> Host", __LINE__);
 
