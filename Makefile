@@ -10,13 +10,16 @@ default: $(EXE)
 
 
 stbi.o: stbi.cpp
-	$(NVCC) -c stbi.cpp -o stbi.o
+	$(NVCC) -std=c++11 -c stbi.cpp -o stbi.o
 
 face_detection.o: face_detection.cu
-	$(NVCC) -c -o $@ face_detection.cu $(NVCC_FLAGS)
+	$(NVCC) -std=c++11 -c -o $@ face_detection.cu $(NVCC_FLAGS)
 
 $(EXE): $(OBJ)
 	$(NVCC) $(OBJ) -o $(EXE) $(LD_FLAGS)
 
 clean:
 	rm -rf *.o $(EXE)
+	
+ultraclean:
+	rm -rf *.o* *.e* $(EXE)

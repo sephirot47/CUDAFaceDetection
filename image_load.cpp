@@ -152,7 +152,7 @@ public:
               }
           }
       }
-      stbi_write_bmp("result.bmp", container->width(), container->height(), 3, result);
+      stbi_write_bmp("output/result.bmp", container->width(), container->height(), 3, result);
   }
 
 private:

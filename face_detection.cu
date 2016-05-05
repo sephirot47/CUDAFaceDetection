@@ -48,15 +48,13 @@ class Image
 public:
   Image(char* filename) {
     FILE *file = fopen(filename, "r");
-    if (file != NULL)
-    {
-      data = stbi_load_from_file(file, &_width, &_height, &comp, 4); // rgba
-      fclose (file);
+    if (file != NULL) {
+	data = stbi_load_from_file(file, &_width, &_height, &comp, 4); // rgba
+	fclose (file);
+	printf("%s read successfully\n", filename);
     }
     else
-    {
-        printf("Image '%s' not found\n", filename);
-    }
+	printf("Image '%s' not found\n", filename);
   }
 
   int width() {
@@ -190,13 +188,22 @@ int main(int argc, char** argv)
 {
   if(argc < 4)
       cout << "usage: " << argv[0] << " <container file name> <object file name>" << endl;
+  
+  for (int i = 0; i < argc; ++i)
+      cout << argv[i] << endl;
 
   FaceDetection fc(argv[1], argv[2]);
 
   unsigned int nThreads = 1024;
-  unsigned int nBlocks = 65535; //SUPONIENDO QUE LAS DOS IMAGENES SON CUADRADAS!
+  unsigned int nBlocks = 65535; // Assuming square matrices
   unsigned int step = (fc.container->width() - fc.object->width()) / nBlocks;
 
+  int numBytesContainer = fc.container->width() * fc.container->height() * sizeof(uc);
+  int numBytesObject = fc.object->width() * fc.object->height() * sizeof(uc);
+  
+  printf("numBytesContainer: %d\n", numBytesContainer);
+  printf("numBytesObject: %d\n", numBytesObject);
+  
   // Obtener Memoria en el host
   uc *h_resultDiffMatrix = (uc*) malloc(numBytesContainer);
   uc *h_containerImageGS = (uc*) malloc(numBytesContainer);
@@ -206,10 +213,6 @@ int main(int argc, char** argv)
   //cudaMallocHost((float**)&h_x, numBytes);
   //cudaMallocHost((float**)&h_y, numBytes);
   //cudaMallocHost((float**)&H_y, numBytes);   // Solo se usa para comprobar el resultado
-
-  //Save two images in grayscale
-  int numBytesContainer = fc.container->width() * fc.container->height() * sizeof(uc);
-  int numBytesObject = fc.object->width() * fc.object->height() * sizeof(uc);
 
   //Fill container image with its grayscale
   for(int y = 0; y < fc.container->height(); ++y) {
