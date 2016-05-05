@@ -1,13 +1,22 @@
-all: image_load.exe 
+CUDA_HOME   = /Soft/cuda/7.5.18
 
-image_load.o: image_load.cpp
-	g++ -std=c++11 -c image_load.cpp -o image_load.o
+NVCC        = $(CUDA_HOME)/bin/nvcc
+NVCC_FLAGS  = -O3 -I$(CUDA_HOME)/include -arch=sm_20 -I$(CUDA_HOME)/sdk/CUDALibraries/common/inc
+LD_FLAGS    = -lcudart -Xlinker -rpath,$(CUDA_HOME)/lib64 -I$(CUDA_HOME)/sdk/CUDALibraries/common/lib
+EXE	    = face_detection.exe
+OBJ	    = stbi.o face_detection.o
+
+default: $(EXE)
+
 
 stbi.o: stbi.cpp
-	g++ -std=c++11 -c stbi.cpp -o stbi.o
-	
-image_load.exe: image_load.o stbi.o
-	g++ -std=c++11 image_load.o stbi.o -o image_load.exe
+	$(NVCC) -c stbi.cpp -o stbi.o
+
+face_detection.o: face_detection.cu
+	$(NVCC) -c -o $@ face_detection.cu $(NVCC_FLAGS)
+
+$(EXE): $(OBJ)
+	$(NVCC) $(OBJ) -o $(EXE) $(LD_FLAGS)
 
 clean:
-	rm -rf *.o *.exe
+	rm -rf *.o $(EXE)
