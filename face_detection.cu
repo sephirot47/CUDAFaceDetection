@@ -170,20 +170,29 @@ private:
 
 };
 
-__global__ void getWindowDiff(uc *imgContainer, int containerWidth,
+__global__ void getWindowDiff(uc *imgContainer, int containerWidth, int containerHeight,
                               uc *imgObject, int objectWidth, int objectHeight,
                               uc *resultMatrix, unsigned int step)
 {
     if(threadIdx.x != 0) return;
 
-    int ox = blockIdx.x * (blockDim.x + step);// + threadIdx.x;
-    int oy = blockIdx.y * (blockDim.y + step);// + threadIdx.y;
+    int tx = blockIdx.x * (blockDim.x + step);
+    int ox = tx % containerWidth;// + threadIdx.x;
+    int oy = tx / containerWidth;
 
-    int cOffset = oy * containerWidth + ox;
+    if(ox + objectWidth >= containerWidth) return;
+    if(oy + objectHeight >= containerHeight) return;
+    printf("ox=%d, oy=%d\n", ox, oy);
+
     int totalDiff = 0;
+    int cOffset = oy * containerWidth + ox;
     for(int y = 0; y < objectHeight; ++y)
+    {
         for(int x = 0; x < objectWidth; ++x)
+        {
             totalDiff += abs(imgContainer[cOffset + y * objectWidth + x] - imgObject[y * objectWidth + x]);
+        }
+    }
 
     printf("%d\n", totalDiff / (objectWidth * objectHeight));
     resultMatrix[oy * containerWidth + ox] = totalDiff / (objectWidth * objectHeight);
@@ -203,7 +212,9 @@ int main(int argc, char** argv)
 
   unsigned int nThreads = 1024;
   unsigned int nBlocks = 65535; // Assuming square matrices
-  unsigned int step = (fc.container->width() - fc.object->width()) / nBlocks;
+  unsigned int dw = fc.container->width() - fc.object->width();
+  unsigned int step = dw * dw / nBlocks;
+  printf("step: %d\n", step);
 
   int numBytesContainer = fc.container->width() * fc.container->height() * sizeof(uc);
   int numBytesObject = fc.object->width() * fc.object->height() * sizeof(uc);
@@ -277,20 +288,26 @@ int main(int argc, char** argv)
   cudaMemcpy(d_objectImageGS, h_objectImageGS, numBytesObject, cudaMemcpyHostToDevice);
   CheckCudaError((char *) "Copiar Datos Host --> Device", __LINE__);
 
+  printf("Synchronizing device...\n");
+  cudaDeviceSynchronize();
+  printf("Device synchronized.\n");
+
   // Ejecutar el kernel
   printf("Executing kernel getWindowDiff...\n");
-  getWindowDiff<<<nBlocks, nThreads>>>(d_containerImageGS, fc.container->width(),
-                                       d_objectImageGS, fc.object->width(), fc.object->height(),
-                                       d_resultDiffMatrix, step);
+  getWindowDiff<<<nBlocks, nThreads>>>(
+         d_containerImageGS, fc.container->width(), fc.container->height(),
+         d_objectImageGS, fc.object->width(), fc.object->height(),
+         d_resultDiffMatrix, step);
+  printf("Synchronizing device...\n");
+  cudaDeviceSynchronize();
+  printf("Device synchronized.\n");
+
   CheckCudaError((char *) "Invocar Kernel", __LINE__);
 
   // Obtener el resultado desde el host
   printf("Retrieving resultMatrix from device to host...\n");
-  cudaMemcpy(h_resultDiffMatrix, d_resultDiffMatrix, numBytesContainer, cudaMemcpyDeviceToHost);
+  printf("%d\n", cudaMemcpy(h_resultDiffMatrix, d_resultDiffMatrix, numBytesContainer, cudaMemcpyDeviceToHost));
   CheckCudaError((char *) "Copiar Datos Device --> Host", __LINE__);
-
-  printf("Synchronizing device...\n");
-  cudaDeviceSynchronize();
 
   // Liberar Memoria del device
   printf("Freeing device memory...\n");
@@ -300,6 +317,27 @@ int main(int argc, char** argv)
 
   printf("Synchronizing device...\n");
   cudaDeviceSynchronize();
+  printf("Device synchronized.\n");
+
+  //Treat Result
+  printf("\n\nTreating result...\n", resultX, resultY, minDiff);
+  int minDiff = 260;
+  int resultX = 0, resultY = 0;
+  for(int y = 0; y < fc.container->height(); ++y)
+  {
+      for(int x = 0; x < fc.container->width(); ++x)
+      {
+          int diff = h_resultDiffMatrix[y * fc.container->width() + x];
+          if(diff > 0 && diff < minDiff)
+          {
+                minDiff = diff;
+                resultX = x;
+                resultY = y;
+          }
+      }
+  }
+
+  printf("Best guess: (%d, %d), with diff: %d\n\n", resultX, resultY, minDiff);
 
   printf("nThreads: %d\n", nThreads);
   printf("nBlocks: %d\n", nBlocks);
