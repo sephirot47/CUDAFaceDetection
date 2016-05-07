@@ -46,15 +46,20 @@ public:
 class Image
 {
 public:
-  Image(char* filename) {
+  char* filename;
+
+  Image(char* filename)
+  {
+    this->filename = filename;
+
     FILE *file = fopen(filename, "r");
-    if (file != NULL) {
-	data = stbi_load_from_file(file, &_width, &_height, &comp, 4); // rgba
-	fclose (file);
-	printf("%s read successfully\n", filename);
+    if (file != NULL)
+    {
+        data = stbi_load_from_file(file, &_width, &_height, &comp, 4); // rgba
+        fclose (file);
+        printf("%s read successfully\n", filename);
     }
-    else
-	printf("Image '%s' not found\n", filename);
+    else printf("Image '%s' not found\n", filename);
   }
 
   int width() {
@@ -174,11 +179,13 @@ __global__ void getWindowDiff(uc *imgContainer, int containerWidth,
     int ox = blockIdx.x * (blockDim.x + step);// + threadIdx.x;
     int oy = blockIdx.y * (blockDim.y + step);// + threadIdx.y;
 
+    int cOffset = oy * containerWidth + ox;
     int totalDiff = 0;
     for(int y = 0; y < objectHeight; ++y)
         for(int x = 0; x < objectWidth; ++x)
-            totalDiff += abs(imgContainer[y * objectWidth + x] - imgObject[y * objectWidth + x]);
+            totalDiff += abs(imgContainer[cOffset + y * objectWidth + x] - imgObject[y * objectWidth + x]);
 
+    printf("%d\n", totalDiff / (objectWidth * objectHeight));
     resultMatrix[oy * containerWidth + ox] = totalDiff / (objectWidth * objectHeight);
 }
 
@@ -200,21 +207,37 @@ int main(int argc, char** argv)
 
   int numBytesContainer = fc.container->width() * fc.container->height() * sizeof(uc);
   int numBytesObject = fc.object->width() * fc.object->height() * sizeof(uc);
-  
-  printf("numBytesContainer: %d\n", numBytesContainer);
-  printf("numBytesObject: %d\n", numBytesObject);
+
+  printf("Container File: %s, size(%d px, %d px), bytes(%d B)\n",
+         fc.container->filename, fc.container->width(), fc.container->height(),
+         numBytesContainer);
+  printf("Object File: %s, size(%d px, %d px), bytes(%d B)\n",
+         fc.object->filename, fc.object->width(), fc.object->height(),
+         numBytesObject);
   
   // Obtener Memoria en el host
+  printf("Getting memory in the host to allocate GS images and resultMatrix...\n");
   uc *h_resultDiffMatrix = (uc*) malloc(numBytesContainer);
+  printf("resultMatrix memory in the host got.\n");
   uc *h_containerImageGS = (uc*) malloc(numBytesContainer);
+  printf("ContainerGS memory in the host got.\n");
   uc *h_objectImageGS = (uc*) malloc(numBytesObject);
+  printf("ObjectGS memory in the host got.\n");
+  printf("Memory in the host got.\n");
 
   //Obtiene Memoria [pinned] en el host
   //cudaMallocHost((float**)&h_x, numBytes);
   //cudaMallocHost((float**)&h_y, numBytes);
   //cudaMallocHost((float**)&H_y, numBytes);   // Solo se usa para comprobar el resultado
 
-  //Fill container image with its grayscale
+  printf("Filling resultMatrix in the host with zeroes...\n");
+  for(int y = 0; y < fc.container->height(); ++y) {
+      for(int x = 0; x < fc.container->width(); ++x) {
+          h_resultDiffMatrix[y * fc.container->width() + x] = 0;
+      }
+  }
+
+  printf("Filling ContainerGS in the host with GS values...\n");
   for(int y = 0; y < fc.container->height(); ++y) {
       for(int x = 0; x < fc.container->width(); ++x) {
           h_containerImageGS[y * fc.container->width() + x] = fc.container->getGrayScale(Pixel(x,y));
@@ -222,18 +245,13 @@ int main(int argc, char** argv)
   }
 
   //Fill object image with its grayscale
+  printf("Filling ObjectGS in the host with GS values...\n");
   for(int y = 0; y < fc.object->height(); ++y) {
       for(int x = 0; x < fc.object->width(); ++x) {
           h_objectImageGS[y * fc.object->width() + x] = fc.object->getGrayScale(Pixel(x,y));
       }
   }
 
-  //Fill resultDiffMatrix with zeroes
-  for(int y = 0; y < fc.container->height(); ++y) {
-      for(int x = 0; x < fc.container->width(); ++x) {
-          h_objectImageGS[y * fc.container->width() + x] = 0;
-      }
-  }
 
   //For every pixel(x,y), it contains the result of the avg diff of the window beginning in that pixel
   uc *d_resultDiffMatrix;
@@ -241,33 +259,46 @@ int main(int argc, char** argv)
   uc *d_objectImageGS;    // smaller image
 
   // Obtener Memoria en el device
+  printf("Getting memory in the device to allocate GS images and resultMatrix...\n");
   cudaMalloc((uc**)&d_resultDiffMatrix, numBytesContainer); //result diff matrix
+  printf("resultMatrix memory in the device got.\n");
   cudaMalloc((uc**)&d_containerImageGS, numBytesContainer);
+  printf("ContainerGS memory in the device got.\n");
   cudaMalloc((uc**)&d_objectImageGS, numBytesObject);
+  printf("ObjectGS memory in the device got.\n");
   CheckCudaError((char *) "Obtener Memoria en el device", __LINE__);
 
   // Copiar datos desde el host en el device
+  printf("Copying resultMatrix in the host to the device...\n");
   cudaMemcpy(d_resultDiffMatrix, h_resultDiffMatrix, numBytesContainer, cudaMemcpyHostToDevice);
+  printf("Copying ContainerGS in the host to the device...\n");
   cudaMemcpy(d_containerImageGS, h_containerImageGS, numBytesContainer, cudaMemcpyHostToDevice);
+  printf("Copying objectGS in the host to the device...\n");
   cudaMemcpy(d_objectImageGS, h_objectImageGS, numBytesObject, cudaMemcpyHostToDevice);
   CheckCudaError((char *) "Copiar Datos Host --> Device", __LINE__);
 
   // Ejecutar el kernel
+  printf("Executing kernel getWindowDiff...\n");
   getWindowDiff<<<nBlocks, nThreads>>>(d_containerImageGS, fc.container->width(),
                                        d_objectImageGS, fc.object->width(), fc.object->height(),
                                        d_resultDiffMatrix, step);
   CheckCudaError((char *) "Invocar Kernel", __LINE__);
 
-
   // Obtener el resultado desde el host
+  printf("Retrieving resultMatrix from device to host...\n");
   cudaMemcpy(h_resultDiffMatrix, d_resultDiffMatrix, numBytesContainer, cudaMemcpyDeviceToHost);
   CheckCudaError((char *) "Copiar Datos Device --> Host", __LINE__);
 
+  printf("Synchronizing device...\n");
+  cudaDeviceSynchronize();
+
   // Liberar Memoria del device
+  printf("Freeing device memory...\n");
   cudaFree(d_resultDiffMatrix);
   cudaFree(d_containerImageGS);
   cudaFree(d_objectImageGS);
 
+  printf("Synchronizing device...\n");
   cudaDeviceSynchronize();
 
   printf("nThreads: %d\n", nThreads);
