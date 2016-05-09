@@ -172,24 +172,54 @@ private:
 
 __global__ void getWindowDiff(uc *imgContainer, int containerWidth, int containerHeight,
                               uc *imgObject, int objectWidth, int objectHeight,
-                              int  *resultMatrix, unsigned int step)
+                              int  *resultMatrix, unsigned int step,
+                              uc *resizeMatrix9x9, uc *resizeMatrix30x30)
 {
 
-if(threadIdx.x != 0) return;
-    //printf("threadIdx(%d,%d), blockIdx(%d,%d), blockDim(%d,%d).\n", threadIdx.x, threadIdx.y, blockIdx.x, blockIdx.y, blockDim.x, blockDim.y);//, tx=%d, ox=%d, oy=%d\n", blockIdx.x, blockDim.x, tx, ox, oy);
-    
+    if(threadIdx.x != 0) return;
+    //printf("threadIdx(%d,%d), blockIdx(%d,%d), blockDim(%d,%d).\n",
+              //threadIdx.x, threadIdx.y, blockIdx.x, blockIdx.y, blockDim.x, blockDim.y);
+
     int ox = blockIdx.x * step;
     int oy = blockIdx.y * step;
 
-    //printf("GOOD [ox=%d, oy=%d]\n", ox, oy);
+    int cOffset = oy * containerWidth + ox;
+
+    //FIRST STEP: Resize the current window to 9x9
+    // For every pixel of the 9x9 resized image,
+    // how many pixels of the current window have to be sampled?
+    // (do the mean with them)
+    int xMinification9x9 = objectWidth / 9;
+    int yMinification9x9 = objectHeight / 9;
+    //For each pixel in the 9x9 image
+    for(int y = 0; y < yMinification9x9; ++y)
+    {
+        for(int x = 0; x < xMinification9x9; ++x)
+        {
+            //Save in its position, the mean of the corresponding window pixels
+            int mean = 0;
+            for(int y2 = 0; y2 < objectHeight; ++y2)
+            {
+                for(int x2 = 0; x2 < objectWidth; ++x2)
+                {
+                    int objOffset = y2 * objectWidth + x2;
+                    int resizeOffset = x * objectWidth + y * objectHeight;
+                    uc v = imgContainer[cOffset + objOffset + resizeOffset];
+                    mean += v;
+                }
+            }
+            mean /= xMinification9x9 * yMinification9x9;
+        }
+    }
+    //
+
 
     int totalDiff = 0;
-    int cOffset = oy * containerWidth + ox;
     for(int y = 0; y < objectHeight; ++y)
     {
         for(int x = 0; x < objectWidth; ++x)
         {
-	    int objOffset = y * objectWidth + x;
+            int objOffset = y * objectWidth + x;
             totalDiff += abs(imgContainer[cOffset + objOffset] - imgObject[objOffset]);
         }
     }
@@ -201,11 +231,9 @@ void CheckCudaError(char sms[], int line);
 
 int main(int argc, char** argv)
 {
-  if(argc < 4)
-      cout << "usage: " << argv[0] << " <container file name> <object file name>" << endl;
+  cout << "Usage: " << argv[0] << " <container file name> <object file name>" << endl;
   
-  for (int i = 0; i < argc; ++i)
-      cout << argv[i] << endl;
+  for (int i = 0; i < argc; ++i) { cout << argv[i] << endl; }
 
   FaceDetection fc(argv[1], argv[2]);
 
@@ -214,12 +242,14 @@ int main(int argc, char** argv)
   unsigned int nBlocks = 254; // Assuming square matrices
   dim3 dimGrid(nBlocks, nBlocks, 1); //(nBlocks.x, nBlocks.y, 1)
   dim3 dimBlock(nThreads, 1, 1); //(nThreads.x, nThreads.y, 1)
+
   unsigned int dw = fc.container->width() - fc.object->width();
   unsigned int step = dw / nBlocks;
   printf("step: %d\n", step);
 
   int numBytesContainer = fc.container->width() * fc.container->height() * sizeof(uc);
   int numBytesObject = fc.object->width() * fc.object->height() * sizeof(uc);
+  int numBytesResultMatrix = numBytesContainer * sizeof(int) / sizeof(uc);
 
   printf("Container File: %s, size(%d px, %d px), bytes(%d B)\n",
          fc.container->filename, fc.container->width(), fc.container->height(),
@@ -230,12 +260,9 @@ int main(int argc, char** argv)
   
   // Obtener Memoria en el host
   printf("Getting memory in the host to allocate GS images and resultMatrix...\n");
-  int *h_resultDiffMatrix = (int*) malloc(numBytesContainer * sizeof(int) / sizeof(uc));
-  printf("resultMatrix memory in the host got.\n");
+  int *h_resultDiffMatrix = (int*) malloc(numBytesResultMatrix);
   uc *h_containerImageGS = (uc*) malloc(numBytesContainer);
-  printf("ContainerGS memory in the host got.\n");
   uc *h_objectImageGS = (uc*) malloc(numBytesObject);
-  printf("ObjectGS memory in the host got.\n");
   printf("Memory in the host got.\n");
 
   //Obtiene Memoria [pinned] en el host
@@ -268,48 +295,40 @@ int main(int argc, char** argv)
 
   //For every pixel(x,y), it contains the result of the avg diff of the window beginning in that pixel
   int *d_resultDiffMatrix;
-  uc *d_containerImageGS; // bigger image
-  uc *d_objectImageGS;    // smaller image
+  uc *d_containerImageGS, *d_objectImageGS, *d_resizeMatrix9x9, *d_resizeMatrix30x30;
 
   // Obtener Memoria en el device
-  printf("Getting memory in the device to allocate GS images and resultMatrix...\n");
-  cudaMalloc((int**)&d_resultDiffMatrix, numBytesContainer * sizeof(int) / sizeof(uc)); //result diff matrix
-  printf("resultMatrix memory in the device got.\n");
+  printf("Getting memory in the device to allocate GS images, resultMatrix, and resizeMatrices...\n");
+  cudaMalloc((int**)&d_resultDiffMatrix, numBytesResultMatrix); //result diff matrix
+  cudaMalloc((uc**)&d_resizeMatrix9x9, numBytesContainer * 9 * 9);
+  cudaMalloc((uc**)&d_resizeMatrix30x30, numBytesContainer * 30 * 30);
   cudaMalloc((uc**)&d_containerImageGS, numBytesContainer);
-  printf("ContainerGS memory in the device got.\n");
   cudaMalloc((uc**)&d_objectImageGS, numBytesObject);
-  printf("ObjectGS memory in the device got.\n");
   CheckCudaError((char *) "Obtener Memoria en el device", __LINE__);
 
   // Copiar datos desde el host en el device
-  printf("Copying resultMatrix in the host to the device...\n");
-  cudaMemcpy(d_resultDiffMatrix, h_resultDiffMatrix, numBytesContainer * sizeof(int) / sizeof(uc), cudaMemcpyHostToDevice);
-  printf("Copying ContainerGS in the host to the device...\n");
+  printf("Copying matrices in the host to the device...\n");
+  cudaMemcpy(d_resultDiffMatrix, h_resultDiffMatrix, numBytesResultMatrix, cudaMemcpyHostToDevice);
   cudaMemcpy(d_containerImageGS, h_containerImageGS, numBytesContainer, cudaMemcpyHostToDevice);
-  printf("Copying objectGS in the host to the device...\n");
   cudaMemcpy(d_objectImageGS, h_objectImageGS, numBytesObject, cudaMemcpyHostToDevice);
   CheckCudaError((char *) "Copiar Datos Host --> Device", __LINE__);
 
-  printf("Synchronizing device...\n");
   cudaDeviceSynchronize();
-  printf("Device synchronized.\n");
   
-// Ejecutar el kernel
+  // Ejecutar el kernel
   printf("Executing kernel getWindowDiff...\n");
   getWindowDiff<<<dimGrid, dimBlock>>>(
          d_containerImageGS, fc.container->width(), fc.container->height(),
          d_objectImageGS, fc.object->width(), fc.object->height(),
-         d_resultDiffMatrix, step);
+         d_resultDiffMatrix, step,
+         d_resizeMatrix9x9, d_resizeMatrix30x30);
 
-  printf("Synchronizing device...\n");
   cudaDeviceSynchronize();
-  printf("Device synchronized.\n");
-
   CheckCudaError((char *) "Invocar Kernel", __LINE__);
 
   // Obtener el resultado desde el host
   printf("Retrieving resultMatrix from device to host...\n");
-  cudaMemcpy(h_resultDiffMatrix, d_resultDiffMatrix, numBytesContainer * sizeof(int) / sizeof(uc), cudaMemcpyDeviceToHost);
+  cudaMemcpy(h_resultDiffMatrix, d_resultDiffMatrix, numBytesResultMatrix, cudaMemcpyDeviceToHost);
   CheckCudaError((char *) "Copiar Datos Device --> Host", __LINE__);
 
   // Liberar Memoria del device
@@ -318,9 +337,7 @@ int main(int argc, char** argv)
   cudaFree(d_containerImageGS);
   cudaFree(d_objectImageGS);
 
-  printf("Synchronizing device...\n");
   cudaDeviceSynchronize();
-  printf("Device synchronized.\n");
 
   //Treat Result
   int minDiff = 400000000;
@@ -330,7 +347,7 @@ int main(int argc, char** argv)
       for(int x = 0; x < fc.container->width(); ++x)
       {
           int diff = h_resultDiffMatrix[y * fc.container->width() + x];
-	  //printf("(%d,%d): %d\n", x, y, diff);
+          //printf("(%d,%d): %d\n", x, y, diff);
           if( (diff != -1 && diff < minDiff) || minDiff == 400000000)
           {
                 minDiff = diff;
