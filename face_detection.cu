@@ -170,12 +170,65 @@ private:
 
 };
 
+void saveImage(uc *img, int x, int y, int width, int height, const char *filename)
+{
+	uc *aux = (uc*) malloc(width * height * 3 * sizeof(uc));
+	for(int iy = y; iy < height; ++iy)
+	{
+		for(int ix = x; ix < width; ++ix)
+		{
+			int offset = (iy * width + ix) * 3;
+			aux[offset + 0] = img[iy * width + ix];
+			aux[offset + 1] = img[iy * width + ix];
+			aux[offset + 2] = img[iy * width + ix];
+		}
+	}
+
+	stbi_write_bmp(filename, width, height, 3, aux + (y * width + x) * 3 * sizeof(uc));
+	free(aux);
+}
+
+//Always to a smaller size
+void resize(uc *src, int srcx, int srcy, int srcw, int srch, //x,y,width,height
+	    uc *dst, int dstx, int dsty, int dstw, int dsth) //x,y,width,height
+{
+    //Every square of size (bw,bh), will be substituted
+    //by one pixel in the dst image
+    int bw = srcw / dstw;
+    int bh = srch / dsth;
+
+    //For each pixel in the dst
+    for(int dy = 0; dy < dsth; ++dy)
+    {
+        for(int dx = 0; dx < dstw; ++dx)
+        {
+	    //Offset per dst pixel. Every pixel we move in x,y in dst,
+	    //we move bw,bh in the src image.
+            int resizeOffset = (dy * bh) * srcw + (dx * bw);
+            
+	    //Save in its position the mean of the corresponding window pixels
+            int mean = 0;
+            for(int sy = 0; sy < bh; ++sy)
+            {
+                for(int sx = 0; sx < bw; ++sx)
+               {
+                    int srcOffset = sy * srcw + sx;
+                    uc v = src[srcOffset + resizeOffset];
+                    mean += v;
+                }
+            }
+            mean /= bw * bh;
+    	    dst[dy * dstw + dx] = mean;
+        }
+    }
+}
+
 __global__ void getWindowDiff(uc *imgContainer, int containerWidth, int containerHeight,
                               uc *imgObject, int objectWidth, int objectHeight,
                               int  *resultMatrix, unsigned int step,
                               uc *resizeMatrix9x9, uc *resizeMatrix30x30)
 {
-
+return;
     if(threadIdx.x != 0) return;
     //printf("threadIdx(%d,%d), blockIdx(%d,%d), blockDim(%d,%d).\n",
               //threadIdx.x, threadIdx.y, blockIdx.x, blockIdx.y, blockDim.x, blockDim.y);
@@ -192,25 +245,6 @@ __global__ void getWindowDiff(uc *imgContainer, int containerWidth, int containe
     int xMinification9x9 = objectWidth / 9;
     int yMinification9x9 = objectHeight / 9;
     //For each pixel in the 9x9 image
-    for(int y = 0; y < yMinification9x9; ++y)
-    {
-        for(int x = 0; x < xMinification9x9; ++x)
-        {
-            //Save in its position, the mean of the corresponding window pixels
-            int mean = 0;
-            for(int y2 = 0; y2 < objectHeight; ++y2)
-            {
-                for(int x2 = 0; x2 < objectWidth; ++x2)
-                {
-                    int objOffset = y2 * objectWidth + x2;
-                    int resizeOffset = x * objectWidth + y * objectHeight;
-                    uc v = imgContainer[cOffset + objOffset + resizeOffset];
-                    mean += v;
-                }
-            }
-            mean /= xMinification9x9 * yMinification9x9;
-        }
-    }
     //
 
 
@@ -232,8 +266,8 @@ void CheckCudaError(char sms[], int line);
 int main(int argc, char** argv)
 {
   cout << "Usage: " << argv[0] << " <container file name> <object file name>" << endl;
-  
   for (int i = 0; i < argc; ++i) { cout << argv[i] << endl; }
+
 
   FaceDetection fc(argv[1], argv[2]);
 
@@ -242,7 +276,6 @@ int main(int argc, char** argv)
   unsigned int nBlocks = 254; // Assuming square matrices
   dim3 dimGrid(nBlocks, nBlocks, 1); //(nBlocks.x, nBlocks.y, 1)
   dim3 dimBlock(nThreads, 1, 1); //(nThreads.x, nThreads.y, 1)
-
   unsigned int dw = fc.container->width() - fc.object->width();
   unsigned int step = dw / nBlocks;
   printf("step: %d\n", step);
@@ -323,6 +356,14 @@ int main(int argc, char** argv)
          d_resultDiffMatrix, step,
          d_resizeMatrix9x9, d_resizeMatrix30x30);
 
+  printf("Resizing...");
+  resize(h_objectImageGS, 320, 320, fc.object->width(), fc.object->height(), 
+	 h_containerImageGS, 0,   0,                  9,                   9);
+  printf("Resized!");
+  printf("Saving img...");
+  saveImage(h_containerImageGS, 0, 0, 9, 9, "test.bmp");
+  printf("Image saved!");
+
   cudaDeviceSynchronize();
   CheckCudaError((char *) "Invocar Kernel", __LINE__);
 
@@ -340,8 +381,8 @@ int main(int argc, char** argv)
   cudaDeviceSynchronize();
 
   //Treat Result
-  int minDiff = 400000000;
-  int resultX = 0, resultY = 0;
+  //int minDiff = 400000000;
+/*  int resultX = 0, resultY = 0;
   for(int y = 0; y < fc.container->height(); ++y)
   {
       for(int x = 0; x < fc.container->width(); ++x)
@@ -358,7 +399,7 @@ int main(int argc, char** argv)
   }
 
   printf("Best guess: (%d, %d), with diff: %d\n\n", resultX, resultY, minDiff);
-
+*/
   printf("nThreads: %d\n", nThreads);
   printf("nBlocks: %d\n", nBlocks);
 }
