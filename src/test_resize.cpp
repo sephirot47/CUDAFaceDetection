@@ -221,9 +221,9 @@ int main(int argc, char** argv)
       }
   }
 
-  histogramEqualization(h_containerImageGS, 1300, 1200, 700, 800, fc.container->width());
   resize(h_containerImageGS, 1300, 1200, 550, 550, fc.container->width(),
          h_containerImageGS, 0, 0, 9, 9, fc.container->width());
+  histogramEqualization(h_containerImageGS, 0, 0, 9, 9, fc.container->width());
   saveImage(h_containerImageGS, 0, 0, 9, 9, fc.container->width(), "test.bmp");
 
   printf("Image saved!");
