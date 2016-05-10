@@ -104,13 +104,14 @@ public:
     image = new Image(imageFile);
   }
 
-  void saveResult(Pixel origin) {
+  void saveResult(Pixel origin, int windowWidth, int windowHeight)
+  {
       uc *result = new uc[image->width() * image->height() * 3 * sizeof(uc)];
       for(int y = 0; y < image->height(); ++y) {
           for(int x = 0; x < image->width();  ++x) {
               Pixel p(x,y);
               int offset = (y * image->width() + x) * 3;
-              if (belongsTo(p,origin,object->width(),object->height())) {
+              if (belongsTo(p, origin, windowWidth, windowHeight)) {
                   result[offset + 0] = image->getColor(p).r;
                   result[offset + 1] = 255;
                   result[offset + 2] = image->getColor(p).b;
@@ -134,69 +135,57 @@ private:
 
 void saveImage(uc *img, int x, int y, int width, int height, int imgWidth, const char *filename)
 {
-	uc *aux = (uc*) malloc(width * height * 3 * sizeof(uc));
-	for(int iy = 0; iy < height; ++iy)
-	{
-		for(int ix = 0; ix < width; ++ix)
-		{
-			int offset = (iy * width + ix) * 3;
-			aux[offset + 0] = img[(iy+y) * imgWidth + ix + x];
-			aux[offset + 1] = img[(iy+y) * imgWidth + ix + x];
-			aux[offset + 2] = img[(iy+y) * imgWidth + ix + x];
-			printf("offset:%d  |  x:%d, y:%d", offset, x, y); fflush(stdout);
-		}
-	}
-	printf("wololo"); fflush(stdout);
-	stbi_write_bmp(filename, width, height, 3, aux);
-	free(aux);
+    uc *aux = (uc*) malloc(width * height * 3 * sizeof(uc));
+    for(int iy = 0; iy < height; ++iy)
+    {
+        for(int ix = 0; ix < width; ++ix)
+        {
+            int offset = (iy * width + ix) * 3;
+            aux[offset + 0] = img[(iy+y) * imgWidth + ix + x];
+            aux[offset + 1] = img[(iy+y) * imgWidth + ix + x];
+            aux[offset + 2] = img[(iy+y) * imgWidth + ix + x];
+        }
+    }
+    stbi_write_bmp(filename, width, height, 3, aux);
+    free(aux);
 }
 
 //Increase contrast
 void histogramEqualization(uc *img, int ox, int oy, int width, int height, int imgWidth)
 {
-	int intensityToNPixels[256];
-	for(int i = 0; i < 256; ++i) intensityToNPixels[i] = 0;
+    int intensityToNPixels[256];
+    for(int i = 0; i < 256; ++i) intensityToNPixels[i] = 0;
 
-	for(int y = oy; y < oy + height; ++y)
-	{
-		for(int x = ox; x < ox + width; ++x)
-		{
-			int offset = y * imgWidth + x;
-			uc v = img[offset];
-		 	intensityToNPixels[v]++;	
-		}
-	}
+    for(int y = oy; y < oy + height; ++y)
+    {
+        for(int x = ox; x < ox + width; ++x)
+        {
+            int offset = y * imgWidth + x;
+            uc v = img[offset];
+            intensityToNPixels[v]++;
+        }
+    }
 
-	int npixels = width * height;
-	float accumulatedProbs[256];
-	accumulatedProbs[0] = intensityToNPixels[0];
-	for(int i = 1; i < 256; ++i) accumulatedProbs[i] = accumulatedProbs[i-1] + intensityToNPixels[i];
+    int npixels = width * height;
+    float accumulatedProbs[256];
+    accumulatedProbs[0] = intensityToNPixels[0];
+    for(int i = 1; i < 256; ++i) accumulatedProbs[i] = accumulatedProbs[i-1] + intensityToNPixels[i];
 
-	for(int y = oy; y < oy + height; ++y)
-	{
-		for(int x = ox; x < ox + width; ++x)
-		{
-			fflush(stdout);
-			int offset = y * imgWidth + x;
-			uc v = img[offset];
-			printf("v: %d\n", v);
-			fflush(stdout);
-			printf("offset: %d\n", offset);
-			fflush(stdout);
-			printf("accumProbs[%d] = %f\n", v, accumulatedProbs[v]);
-			fflush(stdout);
-			img[offset] = floor( 255 * (accumulatedProbs[v] / npixels) );
-			//img[offset] = uc( (float(img[offset]-minv) / (maxv-minv)) * 255 );
-			printf("v: %d,   equalized(%d,%d): %d\n", v, x, y, img[offset]);
-			fflush(stdout);
-		}
-	}
-	printf("Finished!"); fflush(stdout);
+    for(int y = oy; y < oy + height; ++y)
+    {
+        for(int x = ox; x < ox + width; ++x)
+        {
+            fflush(stdout);
+            int offset = y * imgWidth + x;
+            uc v = img[offset];
+            img[offset] = floor( 255 * (accumulatedProbs[v] / npixels) );
+        }
+    }
 }
 
 //Always to a smaller size
-void resize(uc *src, int srcx, int srcy, int srcw, int srch, //x,y,width,height
-	    uc *dst, int dstx, int dsty, int dstw, int dsth) //x,y,width,height
+void resize(uc *src, int srcx, int srcy, int srcw, int srch, int srcTotalWidth, //x,y,width,height
+            uc *dst, int dstx, int dsty, int dstw, int dsth, int dstTotalWidth) //x,y,width,height
 {
     //Every square of size (bw,bh), will be substituted
     //by one pixel in the dst image
@@ -204,27 +193,27 @@ void resize(uc *src, int srcx, int srcy, int srcw, int srch, //x,y,width,height
     int bh = srch / dsth;
 
     //For each pixel in the dst
-    for(int dy = 0; dy < dsth; ++dy)
+    for(int dy = dsty; dy < dsty + dsth; ++dy)
     {
-        for(int dx = 0; dx < dstw; ++dx)
+        for(int dx = dstx; dx < dstx + dstw; ++dx)
         {
-	    //Offset per dst pixel. Every pixel we move in x,y in dst,
-	    //we move bw,bh in the src image.
-            int resizeOffset = (dy * bh) * srcw + (dx * bw);
-            
-	    //Save in its position the mean of the corresponding window pixels
+            //Offset per dst pixel. Every pixel we move in x,y in dst,
+            //we move bw,bh in the src image.
+            int resizeOffset = (dy * bh) * srcTotalWidth + (dx * bw);
+
+            //Save in its position the mean of the corresponding window pixels
             int mean = 0;
             for(int sy = 0; sy < bh; ++sy)
             {
                 for(int sx = 0; sx < bw; ++sx)
                {
-                    int srcOffset = sy * srcw + sx;
+                    int srcOffset = (srcy + sy) * srcTotalWidth + (srcx + sx);
                     uc v = src[srcOffset + resizeOffset];
                     mean += v;
                 }
             }
             mean /= bw * bh;
-    	    dst[dy * dstw + dx] = mean;
+            dst[dy * dstTotalWidth + dx] = mean;
         }
     }
 }
@@ -334,8 +323,8 @@ int main(int argc, char** argv)
   printf("Equalized!"); fflush(stdout);
   
   printf("Resizing...");
-  resize(h_imageGS, 340, 440, 270, 250, 
-   	 h_imageGS, 0, 0, 9, 9);
+  resize(h_imageGS, 340, 440, 270, 250, fc.image->width(),
+         h_imageGS, 0, 0, 9, 9, fc.image->width());
   printf("Resized!");
   
   printf("Saving image..."); fflush(stdout);
