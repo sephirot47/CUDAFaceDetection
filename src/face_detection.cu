@@ -97,70 +97,32 @@ private:
 class FaceDetection
 {
 public:
-  Image *container, *object;
-
-  FaceDetection(char* containerFile, char* objectFile)
+  Image *image;
+  
+  FaceDetection(char* imageFile)
   {
-    container = new Image(containerFile);
-    object = new Image(objectFile);
-  }
-
-  // 0:   exact same image
-  // 255: very different
-  uc getWindowDiff(Pixel origin, int windowWidth, int windowHeight)
-  {
-    int totalDiff = 0;
-    for(int y = 0; y < windowHeight; ++y)
-    {
-      for(int x = 0; x < windowWidth; ++x)
-      {
-        Pixel cPixel(origin.x + x, origin.y + y); // container pixel
-        Pixel oPixel(x,y);                        // object pixel
-
-        uc cAlpha = container->getColor(cPixel).a;
-        uc oAlpha = container->getColor(oPixel).a;
-        uc cGray = container->getGrayScale(cPixel);
-        uc oGray = object->getGrayScale(oPixel);
-
-        uc diffAlpha = getDiff(cAlpha, oAlpha);
-        if(diffAlpha < 200) // if alpha channels differ, ignore the diff (consider pixels are equal)
-        {
-          uc diff = getDiff(cGray, oGray);
-          totalDiff += diff;
-        }
-      }
-    }
-
-    return uc(totalDiff / (windowWidth * windowHeight));
-  }
-
-
-  // 0:   same grayscale
-  // 255: very different
-  uc getDiff(uc gray1, uc gray2)
-  {
-    return abs(gray1-gray2);
+    image = new Image(imageFile);
   }
 
   void saveResult(Pixel origin) {
-      uc *result = new uc[container->width() * container->height() * 3 * sizeof(uc)];
-      for(int y = 0; y < container->height(); ++y) {
-          for(int x = 0; x < container->width();  ++x) {
+      uc *result = new uc[image->width() * image->height() * 3 * sizeof(uc)];
+      for(int y = 0; y < image->height(); ++y) {
+          for(int x = 0; x < image->width();  ++x) {
               Pixel p(x,y);
-              int offset = (y * container->width() + x) * 3;
+              int offset = (y * image->width() + x) * 3;
               if (belongsTo(p,origin,object->width(),object->height())) {
-                  result[offset + 0] = container->getColor(p).r;
+                  result[offset + 0] = image->getColor(p).r;
                   result[offset + 1] = 255;
-                  result[offset + 2] = container->getColor(p).b;
+                  result[offset + 2] = image->getColor(p).b;
               }
               else {
-                  result[offset + 0] = container->getColor(p).r;
-                  result[offset + 1] = container->getColor(p).g;
-                  result[offset + 2] = container->getColor(p).b;
+                  result[offset + 0] = image->getColor(p).r;
+                  result[offset + 1] = image->getColor(p).g;
+                  result[offset + 2] = image->getColor(p).b;
               }
           }
       }
-      stbi_write_bmp("result.bmp", container->width(), container->height(), 3, result);
+      stbi_write_bmp("output/result.bmp", image->width(), image->height(), 3, result);
   }
 
 private:
@@ -267,10 +229,8 @@ void resize(uc *src, int srcx, int srcy, int srcw, int srch, //x,y,width,height
     }
 }
 
-__global__ void getWindowDiff(uc *imgContainer, int containerWidth, int containerHeight,
-                              uc *imgObject, int objectWidth, int objectHeight,
-                              int  *resultMatrix, unsigned int step,
-                              uc *resizeMatrix9x9, uc *resizeMatrix30x30)
+__global__ void getWindowDiff(uc *imgContainer, int imageWidth, int imageHeight,
+                              int  *resultMatrix, unsigned int step)
 {
 return;
     if(threadIdx.x != 0) return;
@@ -280,66 +240,49 @@ return;
     int ox = blockIdx.x * step;
     int oy = blockIdx.y * step;
 
-    int cOffset = oy * containerWidth + ox;
+    int cOffset = oy * imageWidth + ox;
 
     //FIRST STEP: Resize the current window to 9x9
     // For every pixel of the 9x9 resized image,
     // how many pixels of the current window have to be sampled?
     // (do the mean with them)
-    int xMinification9x9 = objectWidth / 9;
-    int yMinification9x9 = objectHeight / 9;
     //For each pixel in the 9x9 image
-    //
+    // TODO
 
-
-    int totalDiff = 0;
-    for(int y = 0; y < objectHeight; ++y)
-    {
-        for(int x = 0; x < objectWidth; ++x)
-        {
-            int objOffset = y * objectWidth + x;
-            totalDiff += abs(imgContainer[cOffset + objOffset] - imgObject[objOffset]);
-        }
-    }
-
-    resultMatrix[cOffset] = totalDiff;
+    resultMatrix[cOffset] = 0;
 }
 
 void CheckCudaError(char sms[], int line);
 
 int main(int argc, char** argv)
 {
-  cout << "Usage: " << argv[0] << " <container file name> <object file name>" << endl;
+  cout << "Usage: " << argv[0] << " <image file name>" << endl;
   for (int i = 0; i < argc; ++i) { cout << argv[i] << endl; }
 
 
-  FaceDetection fc(argv[1], argv[2]);
+  FaceDetection fc(argv[1]);
 
 
   unsigned int nThreads = 1024;
   unsigned int nBlocks = 254; // Assuming square matrices
   dim3 dimGrid(nBlocks, nBlocks, 1); //(nBlocks.x, nBlocks.y, 1)
   dim3 dimBlock(nThreads, 1, 1); //(nThreads.x, nThreads.y, 1)
-  unsigned int dw = fc.container->width() - fc.object->width();
+  int windowWidth = 250;
+  unsigned int dw = fc.image->width() - windowWidth;
   unsigned int step = dw / nBlocks;
   printf("step: %d\n", step);
 
-  int numBytesContainer = fc.container->width() * fc.container->height() * sizeof(uc);
-  int numBytesObject = fc.object->width() * fc.object->height() * sizeof(uc);
+  int numBytesContainer = fc.image->width() * fc.image->height() * sizeof(uc);
   int numBytesResultMatrix = numBytesContainer * sizeof(int) / sizeof(uc);
 
   printf("Container File: %s, size(%d px, %d px), bytes(%d B)\n",
-         fc.container->filename, fc.container->width(), fc.container->height(),
+         fc.image->filename, fc.image->width(), fc.image->height(),
          numBytesContainer);
-  printf("Object File: %s, size(%d px, %d px), bytes(%d B)\n",
-         fc.object->filename, fc.object->width(), fc.object->height(),
-         numBytesObject);
   
   // Obtener Memoria en el host
   printf("Getting memory in the host to allocate GS images and resultMatrix...\n");
   int *h_resultDiffMatrix = (int*) malloc(numBytesResultMatrix);
-  uc *h_containerImageGS = (uc*) malloc(numBytesContainer);
-  uc *h_objectImageGS = (uc*) malloc(numBytesObject);
+  uc *h_imageGS = (uc*) malloc(numBytesContainer);
   printf("Memory in the host got.\n");
 
   //Obtiene Memoria [pinned] en el host
@@ -348,46 +291,34 @@ int main(int argc, char** argv)
   //cudaMallocHost((float**)&H_y, numBytes);   // Solo se usa para comprobar el resultado
 
   printf("Filling resultMatrix in the host...\n");
-  for(int y = 0; y < fc.container->height(); ++y) {
-      for(int x = 0; x < fc.container->width(); ++x) {
-          h_resultDiffMatrix[y * fc.container->width() + x] = -1;
+  for(int y = 0; y < fc.image->height(); ++y) {
+      for(int x = 0; x < fc.image->width(); ++x) {
+          h_resultDiffMatrix[y * fc.image->width() + x] = -1;
       }
   }
 
   printf("Filling ContainerGS in the host with GS values...\n");
-  for(int y = 0; y < fc.container->height(); ++y) {
-      for(int x = 0; x < fc.container->width(); ++x) {
-          h_containerImageGS[y * fc.container->width() + x] = fc.container->getGrayScale(Pixel(x,y));
-      }
-  }
-
-  //Fill object image with its grayscale
-  printf("Filling ObjectGS in the host with GS values...\n");
-  for(int y = 0; y < fc.object->height(); ++y) {
-      for(int x = 0; x < fc.object->width(); ++x) {
-          h_objectImageGS[y * fc.object->width() + x] = fc.object->getGrayScale(Pixel(x,y));
+  for(int y = 0; y < fc.image->height(); ++y) {
+      for(int x = 0; x < fc.image->width(); ++x) {
+          h_imageGS[y * fc.image->width() + x] = fc.image->getGrayScale(Pixel(x,y));
       }
   }
 
 
-  //For every pixel(x,y), it contains the result of the avg diff of the window beginning in that pixel
+  //For every pixel(x,y), it contains the heuristic value of the window beginning in that pixel
   int *d_resultDiffMatrix;
-  uc *d_containerImageGS, *d_objectImageGS, *d_resizeMatrix9x9, *d_resizeMatrix30x30;
+  uc *d_imageGS;
 
   // Obtener Memoria en el device
   printf("Getting memory in the device to allocate GS images, resultMatrix, and resizeMatrices...\n");
   cudaMalloc((int**)&d_resultDiffMatrix, numBytesResultMatrix); //result diff matrix
-  cudaMalloc((uc**)&d_resizeMatrix9x9, numBytesContainer * 9 * 9);
-  cudaMalloc((uc**)&d_resizeMatrix30x30, numBytesContainer * 30 * 30);
-  cudaMalloc((uc**)&d_containerImageGS, numBytesContainer);
-  cudaMalloc((uc**)&d_objectImageGS, numBytesObject);
+  cudaMalloc((uc**)&d_imageGS, numBytesContainer);
   CheckCudaError((char *) "Obtener Memoria en el device", __LINE__);
 
   // Copiar datos desde el host en el device
   printf("Copying matrices in the host to the device...\n");
   cudaMemcpy(d_resultDiffMatrix, h_resultDiffMatrix, numBytesResultMatrix, cudaMemcpyHostToDevice);
-  cudaMemcpy(d_containerImageGS, h_containerImageGS, numBytesContainer, cudaMemcpyHostToDevice);
-  cudaMemcpy(d_objectImageGS, h_objectImageGS, numBytesObject, cudaMemcpyHostToDevice);
+  cudaMemcpy(d_imageGS, h_imageGS, numBytesContainer, cudaMemcpyHostToDevice);
   CheckCudaError((char *) "Copiar Datos Host --> Device", __LINE__);
 
   cudaDeviceSynchronize();
@@ -395,23 +326,20 @@ int main(int argc, char** argv)
   // Ejecutar el kernel
   printf("Executing kernel getWindowDiff...\n");
   getWindowDiff<<<dimGrid, dimBlock>>>(
-         d_containerImageGS, fc.container->width(), fc.container->height(),
-         d_objectImageGS, fc.object->width(), fc.object->height(),
-         d_resultDiffMatrix, step,
-         d_resizeMatrix9x9, d_resizeMatrix30x30);
+         d_imageGS, fc.image->width(), fc.image->height(),
+         d_resultDiffMatrix, step);
 
-  printf("MaxContrasting...");
-  //saveImage(h_containerImageGS, 0, 0, 9, 9, "test.bmp");
-  histogramEqualization(h_containerImageGS, 340, 440, 270, 250, fc.container->width());
-  printf("MaxContrasted!"); fflush(stdout);
+  printf("Histogram equalization...");
+  histogramEqualization(h_imageGS, 340, 440, 270, 250, fc.image->width());
+  printf("Equalized!"); fflush(stdout);
   
   printf("Resizing...");
-  resize(h_containerImageGS, 340, 440, 270, 250, 
-   	 h_containerImageGS, 0, 0, 9, 9);
+  resize(h_imageGS, 340, 440, 270, 250, 
+   	 h_imageGS, 0, 0, 9, 9);
   printf("Resized!");
   
-  printf("Saving img..."); fflush(stdout);
-  saveImage(h_containerImageGS, 0, 0, 9, 9, fc.container->width(), "test.bmp");
+  printf("Saving image..."); fflush(stdout);
+  saveImage(h_imageGS, 0, 0, 9, 9, fc.image->width(), "test.bmp");
   printf("Image saved!");
 
   cudaDeviceSynchronize();
@@ -425,31 +353,12 @@ int main(int argc, char** argv)
   // Liberar Memoria del device
   printf("Freeing device memory...\n");
   cudaFree(d_resultDiffMatrix);
-  cudaFree(d_containerImageGS);
-  cudaFree(d_objectImageGS);
+  cudaFree(d_imageGS);
 
   cudaDeviceSynchronize();
 
-  //Treat Result
-  //int minDiff = 400000000;
-/*  int resultX = 0, resultY = 0;
-  for(int y = 0; y < fc.container->height(); ++y)
-  {
-      for(int x = 0; x < fc.container->width(); ++x)
-      {
-          int diff = h_resultDiffMatrix[y * fc.container->width() + x];
-          //printf("(%d,%d): %d\n", x, y, diff);
-          if( (diff != -1 && diff < minDiff) || minDiff == 400000000)
-          {
-                minDiff = diff;
-                resultX = x;
-                resultY = y;
-          }
-      }
-  }
+  //TODO: treat result  
 
-  printf("Best guess: (%d, %d), with diff: %d\n\n", resultX, resultY, minDiff);
-*/
   printf("nThreads: %d\n", nThreads);
   printf("nBlocks: %d\n", nBlocks);
 }
