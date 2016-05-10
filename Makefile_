@@ -1,13 +1,17 @@
-all: image_load.exe 
+all: bin/image_load.exe
+	./bin/image_load.exe images/will_image.png images/will_face.png
+	xdg-open output/result.bmp
 
-image_load.o: image_load.cpp
-	g++ -std=c++11 -c image_load.cpp -o image_load.o
+FLAGS  = -Iinclude
 
-stbi.o: stbi.cpp
-	g++ -std=c++11 -c stbi.cpp -o stbi.o
+bin/image_load.o: src/image_load.cpp
+	g++ -std=c++11 -c src/image_load.cpp -o bin/image_load.o $(FLAGS)
+
+bin/stbi.o: src/stbi.cpp
+	g++ -std=c++11 -c src/stbi.cpp -o bin/stbi.o $(FLAGS)
 	
-image_load.exe: image_load.o stbi.o
-	g++ -std=c++11 image_load.o stbi.o -o image_load.exe
+bin/image_load.exe: bin/image_load.o bin/stbi.o
+	g++ -std=c++11 bin/image_load.o bin/stbi.o -o bin/image_load.exe
 
 clean:
-	rm -rf *.o *.exe
+	rm -rf bin/*

@@ -10,4 +10,4 @@ export PATH=/Soft/cuda/7.5.18/bin:$PATH
 # Cambiar el shell
 #$ -S /bin/bash
 
-nvprof ./face_detection.exe
+nvprof ./face_detection.exe images/will_image_small.png images/will_face_small.png
