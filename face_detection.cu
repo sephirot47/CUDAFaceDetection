@@ -170,22 +170,66 @@ private:
 
 };
 
-void saveImage(uc *img, int x, int y, int width, int height, const char *filename)
+void saveImage(uc *img, int x, int y, int width, int height, int imgWidth, const char *filename)
 {
 	uc *aux = (uc*) malloc(width * height * 3 * sizeof(uc));
-	for(int iy = y; iy < height; ++iy)
+	for(int iy = 0; iy < height; ++iy)
 	{
-		for(int ix = x; ix < width; ++ix)
+		for(int ix = 0; ix < width; ++ix)
 		{
 			int offset = (iy * width + ix) * 3;
-			aux[offset + 0] = img[iy * width + ix];
-			aux[offset + 1] = img[iy * width + ix];
-			aux[offset + 2] = img[iy * width + ix];
+			aux[offset + 0] = img[(iy+y) * imgWidth + ix + x];
+			aux[offset + 1] = img[(iy+y) * imgWidth + ix + x];
+			aux[offset + 2] = img[(iy+y) * imgWidth + ix + x];
+			printf("offset:%d  |  x:%d, y:%d", offset, x, y); fflush(stdout);
+		}
+	}
+	printf("wololo"); fflush(stdout);
+	stbi_write_bmp(filename, width, height, 3, aux);
+	free(aux);
+}
+
+//Increase contrast
+void histogramEqualization(uc *img, int ox, int oy, int width, int height, int imgWidth)
+{
+	int intensityToNPixels[256];
+	for(int i = 0; i < 256; ++i) intensityToNPixels[i] = 0;
+
+	for(int y = oy; y < oy + height; ++y)
+	{
+		for(int x = ox; x < ox + width; ++x)
+		{
+			int offset = y * imgWidth + x;
+			uc v = img[offset];
+		 	intensityToNPixels[v]++;	
 		}
 	}
 
-	stbi_write_bmp(filename, width, height, 3, aux + (y * width + x) * 3 * sizeof(uc));
-	free(aux);
+	int npixels = width * height;
+	float accumulatedProbs[256];
+	accumulatedProbs[0] = intensityToNPixels[0];
+	for(int i = 1; i < 256; ++i) accumulatedProbs[i] = accumulatedProbs[i-1] + intensityToNPixels[i];
+
+	for(int y = oy; y < oy + height; ++y)
+	{
+		for(int x = ox; x < ox + width; ++x)
+		{
+			fflush(stdout);
+			int offset = y * imgWidth + x;
+			uc v = img[offset];
+			printf("v: %d\n", v);
+			fflush(stdout);
+			printf("offset: %d\n", offset);
+			fflush(stdout);
+			printf("accumProbs[%d] = %f\n", v, accumulatedProbs[v]);
+			fflush(stdout);
+			img[offset] = floor( 255 * (accumulatedProbs[v] / npixels) );
+			//img[offset] = uc( (float(img[offset]-minv) / (maxv-minv)) * 255 );
+			printf("v: %d,   equalized(%d,%d): %d\n", v, x, y, img[offset]);
+			fflush(stdout);
+		}
+	}
+	printf("Finished!"); fflush(stdout);
 }
 
 //Always to a smaller size
@@ -356,12 +400,18 @@ int main(int argc, char** argv)
          d_resultDiffMatrix, step,
          d_resizeMatrix9x9, d_resizeMatrix30x30);
 
+  printf("MaxContrasting...");
+  //saveImage(h_containerImageGS, 0, 0, 9, 9, "test.bmp");
+  histogramEqualization(h_containerImageGS, 340, 440, 270, 250, fc.container->width());
+  printf("MaxContrasted!"); fflush(stdout);
+  
   printf("Resizing...");
-  resize(h_objectImageGS, 320, 320, fc.object->width(), fc.object->height(), 
-	 h_containerImageGS, 0,   0,                  9,                   9);
+  resize(h_containerImageGS, 340, 440, 270, 250, 
+   	 h_containerImageGS, 0, 0, 9, 9);
   printf("Resized!");
-  printf("Saving img...");
-  saveImage(h_containerImageGS, 0, 0, 9, 9, "test.bmp");
+  
+  printf("Saving img..."); fflush(stdout);
+  saveImage(h_containerImageGS, 0, 0, 9, 9, fc.container->width(), "test.bmp");
   printf("Image saved!");
 
   cudaDeviceSynchronize();
