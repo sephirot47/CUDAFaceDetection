@@ -1,0 +1,16 @@
+all: test_resize.exe
+
+stbi.o: stbi.cpp
+	g++ -std=c++11 -c stbi.cpp -o stbi.o
+
+test_resize.o: test_resize.cpp
+	g++ -std=c++11 -c -o test_resize.o test_resize.cpp
+
+test_resize.exe: stbi.o test_resize.o
+	g++ -std=c++11 test_resize.o stbi.o -o test_resize.exe
+
+clean:
+	rm -rf *.o *.exe
+        
+ultraclean:
+	rm -rf *.o* *.e*                             
