@@ -1,5 +1,6 @@
 #include <iostream>
 #include <string>
+#include <vector>
 #include <sstream>
 #include <stdio.h>
 #include <stdlib.h>
@@ -69,10 +70,11 @@ private:
   uc grayscale(const Color &c) { return 0.299*c.r + 0.587*c.g + 0.114*c.b; }
 };
 
-
+struct Box { int x,y,w,h; Box(int _x, int _y, int _w, int _h) { x=_x; y=_y; w=_w; h=_h; } };
 class FaceDetection
 {
 public:
+  vector<Box> resultWindows;
   Image *container;
 
   FaceDetection(char* containerFile)
@@ -87,32 +89,55 @@ public:
     return abs(gray1-gray2);
   }
 
-  /*
-  void saveResult(Pixel origin) {
+  void saveResult()
+  {
+      int boxStroke = 2;
+      printf("Saving result...\n");
+
       uc *result = new uc[container->width() * container->height() * 3 * sizeof(uc)];
-      for(int y = 0; y < container->height(); ++y) {
-          for(int x = 0; x < container->width();  ++x) {
+      for(int y = 0; y < container->height(); ++y)
+      {
+          for(int x = 0; x < container->width();  ++x)
+          {
               Pixel p(x,y);
-              int offset = (y * container->width() + x) * 3;
-              if (belongsTo(p,origin,object->width(),object->height())) {
-                  result[offset + 0] = container->getColor(p).r;
-                  result[offset + 1] = 255;
-                  result[offset + 2] = container->getColor(p).b;
+              bool isBoundary = false;
+              for(Box b : resultWindows)
+              {
+                  if(belongsTo(p, b))
+                  {
+                      if(abs(x - b.x) <= boxStroke ||
+                         abs(y - b.y) <= boxStroke ||
+                         abs(x - (b.x + b.w - 1)) <= boxStroke ||
+                         abs(y - (b.y + b.h - 1)) <= boxStroke)
+                      {
+                          isBoundary = true;
+                      }
+                  }
               }
-              else {
+
+              int offset = (y * container->width() + x) * 3;
+              if(isBoundary)
+              {
+                  result[offset + 0] = 255 - container->getColor(p).r;
+                  result[offset + 1] = 255 - container->getColor(p).g;
+                  result[offset + 2] = 255 - container->getColor(p).b;
+              }
+              else
+              {
                   result[offset + 0] = container->getColor(p).r;
                   result[offset + 1] = container->getColor(p).g;
                   result[offset + 2] = container->getColor(p).b;
               }
           }
       }
-      stbi_write_bmp("result.bmp", container->width(), container->height(), 3, result);
+
+      stbi_write_bmp("output/result.bmp", container->width(), container->height(), 3, result);
+      //saveImage(result, 0, 0, container->width(), container->height(), container->width()*3, );
   }
-  */
 
 private:
-  bool belongsTo(Pixel p, Pixel o, int w, int h) {
-      return p.x >= o.x && p.x < o.x+w && p.y >= o.y && p.y < o.y+h;
+  bool belongsTo(Pixel p, Box b) {
+      return p.x >= b.x && p.x <= b.x+b.w && p.y >= b.y && p.y <= b.y+b.h;
   }
 
 };
@@ -203,7 +228,7 @@ void resize(uc *src, int srcx, int srcy, int srcw, int srch, int srcTotalWidth, 
 }
 
 uc getHeuristic9x9(uc *img) {
-    int v = int(img[22]) - int( (int(img[19])+int(img[20])+int(img[24])+int(img[25]))/4);
+    int v = img[22] - (img[19]+img[20]+img[24]+img[25])/4;
     return v < 0 ? 0 : v;
 }
 
@@ -231,27 +256,35 @@ int main(int argc, char** argv)
   histogramEqualization(h_containerImageGS, 0, 0, 9, 9, fc.container->width());
   saveImage(h_containerImageGS, 0, 0, 9, 9, fc.container->width(), "test.bmp");
 
+  const int heuristicThreshold = 145;
   int windowWidth = 550;
   int windowHeight = 550;
   int step = 50;
   for (int y = 0; y < fc.container->height() - windowHeight; y += step)
-      for (int x = 0; x < fc.container->width() - windowWidth; x += step) {
+  {
+      for (int x = 0; x < fc.container->width() - windowWidth; x += step)
+      {
           uc window9x9[81];
+
           resize(h_containerImageGS, x, y, windowWidth, windowHeight, fc.container->width(),
                  window9x9, 0, 0, 9, 9, 9);
           histogramEqualization(window9x9, 0, 0, 9, 9, 9);
+
           uc hv = getHeuristic9x9(window9x9);
-          printf("%d ... H(%d,%d) -> %d\n", hv, x, y, hv);
-          if (hv == 255) {
-              printf("\tSaving window...\n");
+
+          //printf("%d ... H(%d,%d) -> %d\n", hv, x, y, hv);
+          if (hv >= heuristicThreshold)
+          {
+              printf("Saving window H(%d,%d): %d\n", x, y, hv);
               string filename = "output/window";
-              filename += to_string(x); filename += to_string(y);
-              filename += ".bmp";
-              saveImage(window9x9, 0, 0, 9, 9, 9, filename.c_str());
+              filename += to_string(x); filename += to_string(y); filename += ".bmp";
+              fc.resultWindows.push_back( Box(x, y, windowWidth, windowHeight) );
           }
       }
-
-  printf("Image saved!");
+  }
+  fc.saveResult();
+  printf("Result saved to 'output/result.bmp' !\n");
+  system("xdg-open output/result.bmp");
 }
 
 
