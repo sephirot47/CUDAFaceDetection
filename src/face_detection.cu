@@ -150,6 +150,10 @@ void saveImage(uc *img, int x, int y, int width, int height, int imgWidth, const
     free(aux);
 }
 
+uc getHeuristic9x9(uc *img) {
+    return img[22] - (img[19]+img[20]+img[24]+img[25])/4;
+}
+
 //Increase contrast
 void histogramEqualization(uc *img, int ox, int oy, int width, int height, int imgWidth)
 {
@@ -320,16 +324,13 @@ int main(int argc, char** argv)
 
   printf("Histogram equalization...");
   histogramEqualization(h_imageGS, 340, 440, 270, 250, fc.image->width());
-  printf("Equalized!"); fflush(stdout);
   
   printf("Resizing...");
   resize(h_imageGS, 340, 440, 270, 250, fc.image->width(),
          h_imageGS, 0, 0, 9, 9, fc.image->width());
-  printf("Resized!");
   
   printf("Saving image..."); fflush(stdout);
   saveImage(h_imageGS, 0, 0, 9, 9, fc.image->width(), "test.bmp");
-  printf("Image saved!");
 
   cudaDeviceSynchronize();
   CheckCudaError((char *) "Invocar Kernel", __LINE__);

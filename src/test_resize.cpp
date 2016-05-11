@@ -202,6 +202,11 @@ void resize(uc *src, int srcx, int srcy, int srcw, int srch, int srcTotalWidth, 
     }
 }
 
+uc getHeuristic9x9(uc *img) {
+    int v = int(img[22]) - int( (int(img[19])+int(img[20])+int(img[24])+int(img[25]))/4);
+    return v < 0 ? 0 : v;
+}
+
 int main(int argc, char** argv)
 {
   FaceDetection fc(argv[1]);
@@ -225,6 +230,26 @@ int main(int argc, char** argv)
          h_containerImageGS, 0, 0, 9, 9, fc.container->width());
   histogramEqualization(h_containerImageGS, 0, 0, 9, 9, fc.container->width());
   saveImage(h_containerImageGS, 0, 0, 9, 9, fc.container->width(), "test.bmp");
+
+  int windowWidth = 550;
+  int windowHeight = 550;
+  int step = 50;
+  for (int y = 0; y < fc.container->height() - windowHeight; y += step)
+      for (int x = 0; x < fc.container->width() - windowWidth; x += step) {
+          uc window9x9[81];
+          resize(h_containerImageGS, x, y, windowWidth, windowHeight, fc.container->width(),
+                 window9x9, 0, 0, 9, 9, 9);
+          histogramEqualization(window9x9, 0, 0, 9, 9, 9);
+          uc hv = getHeuristic9x9(window9x9);
+          printf("%d ... H(%d,%d) -> %d\n", hv, x, y, hv);
+          if (hv == 255) {
+              printf("\tSaving window...\n");
+              string filename = "output/window";
+              filename += to_string(x); filename += to_string(y);
+              filename += ".bmp";
+              saveImage(window9x9, 0, 0, 9, 9, 9, filename.c_str());
+          }
+      }
 
   printf("Image saved!");
 }
