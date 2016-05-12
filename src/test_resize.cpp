@@ -159,35 +159,72 @@ void saveImage(uc *img, int x, int y, int width, int height, int imgWidth, const
     free(aux);
 }
 
+float getHistogram(uc *img, int ox, int oy, int width, int height, int imgWidth, float histogram[256]) {
+  
+  float npixels = width * height;
+  float unitProb = 1.0f/npixels;
+  
+  float maxv = 0.0f;
+  for(int i = 0; i < 256; ++i) histogram[i] = 0;
+  for(int y = oy; y < oy + height; ++y)
+  {
+      for(int x = ox; x < ox + width; ++x)
+      {
+	  int offset = y * imgWidth + x;
+	  uc v = img[offset];
+	  histogram[v] += unitProb;
+	  if(histogram[v] > maxv) maxv = histogram[v];
+      }
+  }
+  return maxv;
+}
+
+void plotHistogram(float histogram[256], float maxv, const char *filename)
+{
+    int width = 256;
+    int height = 110;
+    uc *aux = (uc*) malloc(width * height * 3 * sizeof(uc));
+    
+    for(int iy = 0; iy < height; ++iy)
+    {
+        for(int ix = 0; ix < width; ++ix)
+        {
+	    int offset = (iy * width + ix) * 3;
+	    if (height-iy-1 == uc(histogram[ix] * (height / maxv))) {
+	      aux[offset + 0] = 0;
+	      aux[offset + 1] = 0;
+	      aux[offset + 2] = 0;
+	    }
+	    else {
+	      aux[offset + 0] = 255;
+	      aux[offset + 1] = 255;
+	      aux[offset + 2] = 255;
+	    }
+        }
+    }
+    // for(int i = 0; i < 256; ++i) printf("%d: %f\n",i,histogram[i]);
+    stbi_write_bmp(filename, width, height, 3, aux);
+    free(aux);
+}
+  
+
 //Increase contrast
 void histogramEqualization(uc *img, int ox, int oy, int width, int height, int imgWidth)
 {
-    int intensityToNPixels[256];
-    for(int i = 0; i < 256; ++i) intensityToNPixels[i] = 0;
-
-    for(int y = oy; y < oy + height; ++y)
-    {
-        for(int x = ox; x < ox + width; ++x)
-        {
-            int offset = y * imgWidth + x;
-            uc v = img[offset];
-            intensityToNPixels[v]++;
-        }
-    }
-
-    int npixels = width * height;
+    float histogram[256];
+    getHistogram(img, ox, oy, width, height, imgWidth, histogram);
+  
     float accumulatedProbs[256];
-    accumulatedProbs[0] = intensityToNPixels[0];
-    for(int i = 1; i < 256; ++i) accumulatedProbs[i] = accumulatedProbs[i-1] + intensityToNPixels[i];
+    accumulatedProbs[0] = histogram[0];
+    for(int i = 1; i < 256; ++i) accumulatedProbs[i] = accumulatedProbs[i-1] + histogram[i];
 
     for(int y = oy; y < oy + height; ++y)
     {
         for(int x = ox; x < ox + width; ++x)
         {
-            fflush(stdout);
             int offset = y * imgWidth + x;
             uc v = img[offset];
-            img[offset] = floor( 255 * (accumulatedProbs[v] / npixels) );
+            img[offset] = floor(255 * accumulatedProbs[v]);
         }
     }
 }
@@ -228,7 +265,7 @@ void resize(uc *src, int srcx, int srcy, int srcw, int srch, int srcTotalWidth, 
 }
 
 uc getHeuristic9x9(uc *img) {
-    int v = img[22] - (img[19]+img[20]+img[24]+img[25])/4;
+    int v = img[22] - (img[19]+img[20]+img[24]+img[25]+img[58])/5;
     return v < 0 ? 0 : v;
 }
 
@@ -256,7 +293,7 @@ int main(int argc, char** argv)
   histogramEqualization(h_containerImageGS, 0, 0, 9, 9, fc.container->width());
   saveImage(h_containerImageGS, 0, 0, 9, 9, fc.container->width(), "test.bmp");
 
-  const int heuristicThreshold = 145;
+  const int heuristicThreshold = 140;
   int windowWidth = 550;
   int windowHeight = 550;
   int step = 50;
@@ -275,16 +312,25 @@ int main(int argc, char** argv)
           //printf("%d ... H(%d,%d) -> %d\n", hv, x, y, hv);
           if (hv >= heuristicThreshold)
           {
+	      // save candidate windows
               printf("Saving window H(%d,%d): %d\n", x, y, hv);
               string filename = "output/window";
               filename += to_string(x); filename += to_string(y); filename += ".bmp";
-              fc.resultWindows.push_back( Box(x, y, windowWidth, windowHeight) );
+	      saveImage(window9x9, 0, 0, 9, 9, 9, filename.c_str());
+	      
+	      // save window histograms
+	      float histogram[256];
+	      float maxv = getHistogram(h_containerImageGS, x, y, windowWidth, windowHeight, fc.container->width(), histogram);
+	      filename += ".hist";
+	      plotHistogram(histogram, maxv, filename.c_str()); 
+	      
+              fc.resultWindows.push_back( Box(x, y, windowWidth, windowHeight));
           }
       }
   }
   fc.saveResult();
   printf("Result saved to 'output/result.bmp' !\n");
-  system("xdg-open output/result.bmp");
+  //system("xdg-open output/result.bmp");
 }
 
 
