@@ -207,6 +207,30 @@ void plotHistogram(float histogram[256], float maxv, const char *filename)
     free(aux);
 }
   
+//Increase contrast
+void sobelEdgeDetection(uc *img, int ox, int oy, int width, int height, int imgWidth)
+{
+    uc threshold = 10;
+    for(int y = oy; y < oy + height; ++y)
+    {
+        uc leftValue = img[y * imgWidth + 0];
+        for(int x = ox; x < ox + width; ++x)
+        {
+            int offset = y * imgWidth + x;
+            uc v = img[offset];
+	    if(v - leftValue > threshold)
+	    {
+	      img[offset] = 0;
+	    }
+	    else
+	    {
+	      img[offset] = 255;
+	    }
+	    
+	    leftValue = v;
+        }
+    }
+}
 
 //Increase contrast
 void histogramEqualization(uc *img, int ox, int oy, int width, int height, int imgWidth)
@@ -296,7 +320,7 @@ int main(int argc, char** argv)
   const int heuristicThreshold = 140;
   int windowWidth = 550;
   int windowHeight = 550;
-  int step = 50;
+  int step = 25;
   for (int y = 0; y < fc.container->height() - windowHeight; y += step)
   {
       for (int x = 0; x < fc.container->width() - windowWidth; x += step)
@@ -317,6 +341,14 @@ int main(int argc, char** argv)
               string filename = "output/window";
               filename += to_string(x); filename += to_string(y); filename += ".bmp";
 	      saveImage(window9x9, 0, 0, 9, 9, 9, filename.c_str());
+	      
+	      uc window30x30[900];
+	      resize(h_containerImageGS, x, y, windowWidth, windowHeight, fc.container->width(),
+	     	     window30x30, 0, 0, 30, 30, 30);
+	      filename += ".30";
+	      sobelEdgeDetection(window30x30, 0, 0, 30, 30, 30);
+	      saveImage(window30x30, 0, 0, 30, 30, 30, filename.c_str());
+
 	      
 	      // save window histograms
 	      float histogram[256];
