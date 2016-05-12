@@ -71,6 +71,7 @@ private:
 };
 
 struct Box { int x,y,w,h; Box(int _x, int _y, int _w, int _h) { x=_x; y=_y; w=_w; h=_h; } };
+
 class FaceDetection
 {
 public:
@@ -159,6 +160,41 @@ void saveImage(uc *img, int x, int y, int width, int height, int imgWidth, const
     free(aux);
 }
 
+// Resize always to a smaller size -> downsample
+void resize(uc *src, int srcx, int srcy, int srcw, int srch, int srcTotalWidth, //x,y,width,height
+            uc *dst, int dstx, int dsty, int dstw, int dsth, int dstTotalWidth) //x,y,width,height
+{
+    //Every square of size (bw,bh), will be substituted
+    //by one pixel in the dst image
+    int bw = srcw / dstw;
+    int bh = srch / dsth;
+
+    //For each pixel in the dst
+    for(int dy = dsty; dy < dsty + dsth; ++dy)
+    {
+        for(int dx = dstx; dx < dstx + dstw; ++dx)
+        {
+            //Offset per dst pixel. Every pixel we move in x,y in dst,
+            //we move bw,bh in the src image.
+            int resizeOffset = (dy * bh) * srcTotalWidth + (dx * bw);
+
+            //Save in its position the mean of the corresponding window pixels
+            int mean = 0;
+            for(int sy = 0; sy < bh; ++sy)
+            {
+                for(int sx = 0; sx < bw; ++sx)
+               {
+                    int srcOffset = (srcy + sy) * srcTotalWidth + (srcx + sx);
+                    uc v = src[srcOffset + resizeOffset];
+                    mean += v;
+                }
+            }
+            mean /= bw * bh;
+            dst[dy * dstTotalWidth + dx] = mean;
+        }
+    }
+}
+
 float getHistogram(uc *img, int ox, int oy, int width, int height, int imgWidth, float histogram[256]) {
   
   float npixels = width * height;
@@ -206,47 +242,8 @@ void plotHistogram(float histogram[256], float maxv, const char *filename)
     stbi_write_bmp(filename, width, height, 3, aux);
     free(aux);
 }
-  
-//Increase contrast
-void sobelEdgeDetection(uc *img, int ox, int oy, int width, int height, int imgWidth, uc *sobelImage)
-{
-    uc threshold = 100;
-    sobelImage = (uc*) malloc(width * height * sizeof(uc));
-    
-    for(int y = ox + 1; y < oy + height - 1; ++y)
-    {
-        for(int x = oy + 1; x < ox + width - 1; ++x)
-        {
-            int offset = y * imgWidth + x;
-            uc v = img[offset];
-	    
-	    int sum = -img[(y-1) * imgWidth + x - 1]    +  0  +   img[(y-1) * imgWidth + x + 1] +
-	  	      -2*img[  y   * imgWidth + x - 1]    +  0  + 2*img[  y   * imgWidth + x + 1] +
-		      -img[(y+1) * imgWidth + x - 1]    +  0  +   img[(y+1) * imgWidth + x + 1];
-		      
-	    if(sum >= threshold)
-	    {
-	      sobelImage[y * width + x] = 0;
-	    }
-	    else
-	    {
-	      sobelImage[y * width + x] = 255;
-	    }
-        }
-    }
-    
-    for(int y = 0; y < height; ++y) {
-      img[y * imgWidth] = 255;
-      img[y * imgWidth + width - 1] = 255;
-    }
-    
-    for(int x = 0; x < width; ++x) {
-      img[x] = 255;
-      img[(height-1)*imgWidth + x] = 255;
-    }
-}
 
-//Increase contrast
+// Increase contrast
 void histogramEqualization(uc *img, int ox, int oy, int width, int height, int imgWidth)
 {
     float histogram[256];
@@ -267,44 +264,44 @@ void histogramEqualization(uc *img, int ox, int oy, int width, int height, int i
     }
 }
 
-//Always to a smaller size
-void resize(uc *src, int srcx, int srcy, int srcw, int srch, int srcTotalWidth, //x,y,width,height
-            uc *dst, int dstx, int dsty, int dstw, int dsth, int dstTotalWidth) //x,y,width,height
-{
-    //Every square of size (bw,bh), will be substituted
-    //by one pixel in the dst image
-    int bw = srcw / dstw;
-    int bh = srch / dsth;
-
-    //For each pixel in the dst
-    for(int dy = dsty; dy < dsty + dsth; ++dy)
-    {
-        for(int dx = dstx; dx < dstx + dstw; ++dx)
-        {
-            //Offset per dst pixel. Every pixel we move in x,y in dst,
-            //we move bw,bh in the src image.
-            int resizeOffset = (dy * bh) * srcTotalWidth + (dx * bw);
-
-            //Save in its position the mean of the corresponding window pixels
-            int mean = 0;
-            for(int sy = 0; sy < bh; ++sy)
-            {
-                for(int sx = 0; sx < bw; ++sx)
-               {
-                    int srcOffset = (srcy + sy) * srcTotalWidth + (srcx + sx);
-                    uc v = src[srcOffset + resizeOffset];
-                    mean += v;
-                }
-            }
-            mean /= bw * bh;
-            dst[dy * dstTotalWidth + dx] = mean;
-        }
-    }
-}
-
 uc getHeuristic9x9(uc *img) {
     int v = img[22] - (img[19]+img[20]+img[24]+img[25]+img[58])/5;
     return v < 0 ? 0 : v;
+}
+
+// Find edges in horizontal direction
+void sobelEdgeDetection(uc *img, int ox, int oy, int winWidth, int winHeight, int imgWidth, uc *&sobelImg)
+{
+    uc threshold = 10;
+    sobelImg = (uc*) malloc(winWidth * winHeight * sizeof(uc));
+    
+    for(int y = oy; y < oy + winHeight; ++y)
+    {
+        for(int x = ox; x < ox + winWidth; ++x)
+        {
+            int imgOffset = y * imgWidth + x;
+            int winOffset = (y-oy) * winWidth + (x-ox);
+
+            if (y == oy or y == oy+winHeight-1 or x == ox or x == ox+winWidth-1)
+                sobelImg[winOffset] = 255;
+            else {
+                uc upperLeft  = img[imgOffset - imgWidth - 1];
+                uc upperRight = img[imgOffset - imgWidth + 1];
+                uc left       = img[imgOffset - 1];
+                uc right      = img[imgOffset + 1];
+                uc lowerLeft  = img[imgOffset + imgWidth - 1];
+                uc lowerRight = img[imgOffset + imgWidth + 1];
+
+                int sum = -upperLeft + upperRight + -2*left + 2*right + -lowerLeft + lowerRight;
+                //int sum = -left + right;
+
+                if(sum >= threshold)
+                    sobelImg[winOffset] = 0;
+                else
+                    sobelImg[winOffset] = 255;
+            }
+        }
+    }
 }
 
 int main(int argc, char** argv)
@@ -326,51 +323,47 @@ int main(int argc, char** argv)
       }
   }
 
-  resize(h_containerImageGS, 1300, 1200, 550, 550, fc.container->width(),
-         h_containerImageGS, 0, 0, 9, 9, fc.container->width());
-  histogramEqualization(h_containerImageGS, 0, 0, 9, 9, fc.container->width());
-  saveImage(h_containerImageGS, 0, 0, 9, 9, fc.container->width(), "test.bmp");
-
   const int heuristicThreshold = 140;
-  int windowWidth = 550;
-  int windowHeight = 550;
+  int winWidth = 550;
+  int winHeight = 550;
   int step = 50;
-  for (int y = 0; y < fc.container->height() - windowHeight; y += step)
+  for (int y = 0; y < fc.container->height() - winHeight; y += step)
   {
-      for (int x = 0; x < fc.container->width() - windowWidth; x += step)
+      for (int x = 0; x < fc.container->width() - winWidth; x += step)
       {
           uc window9x9[81];
-
-          resize(h_containerImageGS, x, y, windowWidth, windowHeight, fc.container->width(),
+          resize(h_containerImageGS, x, y, winWidth, winHeight, fc.container->width(),
                  window9x9, 0, 0, 9, 9, 9);
           histogramEqualization(window9x9, 0, 0, 9, 9, 9);
-
           uc hv = getHeuristic9x9(window9x9);
 
           //printf("%d ... H(%d,%d) -> %d\n", hv, x, y, hv);
           if (hv >= heuristicThreshold)
           {
-	      // save candidate windows
+              // save candidate windows
               printf("Saving window H(%d,%d): %d\n", x, y, hv);
               string filename = "output/window";
               filename += to_string(x); filename += to_string(y); filename += ".bmp";
-	      saveImage(window9x9, 0, 0, 9, 9, 9, filename.c_str());
+              saveImage(window9x9, 0, 0, 9, 9, 9, filename.c_str());
+
+              // apply sobel edge detection
+              filename += ".edges";
+              uc *sobelImg;
+              sobelEdgeDetection(h_containerImageGS, x, y, winWidth, winHeight, fc.container->width(), sobelImg);
+              saveImage(sobelImg, 0, 0, winWidth, winHeight, winWidth, filename.c_str());
+
+              // resize the window to 30x30
+              uc window30x30[900];
+              resize(h_containerImageGS, x, y, winWidth, winHeight, fc.container->width(),
+                     window30x30, 0, 0, 30, 30, 30);
+
+              // save window histograms
+              float histogram[256];
+              float maxv = getHistogram(h_containerImageGS, x, y, winWidth, winHeight, fc.container->width(), histogram);
+              filename += ".hist";
+              plotHistogram(histogram, maxv, filename.c_str());
 	      
-	      uc window30x30[900];
-	      resize(h_containerImageGS, x, y, windowWidth, windowHeight, fc.container->width(),
-	     	     window30x30, 0, 0, 30, 30, 30);
-	      filename += ".30";
-	      uc *sobelImage;
-	      sobelEdgeDetection(h_containerImageGS, x, y, windowWidth, windowHeight, fc.container->width(), sobelImage);
-	      saveImage(sobelImage, x, y, windowWidth, windowHeight, fc.container->width(), filename.c_str());
-	      
-	      // save window histograms
-	      float histogram[256];
-	      float maxv = getHistogram(h_containerImageGS, x, y, windowWidth, windowHeight, fc.container->width(), histogram);
-	      filename += ".hist";
-	      plotHistogram(histogram, maxv, filename.c_str()); 
-	      
-              fc.resultWindows.push_back( Box(x, y, windowWidth, windowHeight));
+              fc.resultWindows.push_back( Box(x, y, winWidth, winHeight));
           }
       }
   }
