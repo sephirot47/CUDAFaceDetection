@@ -243,6 +243,19 @@ void plotHistogram(float histogram[256], float maxv, const char *filename)
     free(aux);
 }
 
+void toBlackAndWhite(uc *img, int ox, int oy, int width, int height, int imgWidth)
+{
+    for(int y = oy; y < oy + height; ++y)
+    {
+        for(int x = ox; x < ox + width; ++x)
+        {
+            int offset = y * imgWidth + x;
+            uc v = img[offset];
+            img[offset] = v > 200 ? 255 : 0;
+        }
+    }
+}
+
 // Increase contrast
 void histogramEqualization(uc *img, int ox, int oy, int width, int height, int imgWidth)
 {
@@ -272,8 +285,7 @@ uc getHeuristic9x9(uc *img) {
 // Find edges in horizontal direction
 void sobelEdgeDetection(uc *img, int ox, int oy, int winWidth, int winHeight, int imgWidth, uc *&sobelImg)
 {
-    uc threshold = 10;
-    sobelImg = (uc*) malloc(winWidth * winHeight * sizeof(uc));
+    uc threshold = 24;
     
     for(int y = oy; y < oy + winHeight; ++y)
     {
@@ -287,12 +299,15 @@ void sobelEdgeDetection(uc *img, int ox, int oy, int winWidth, int winHeight, in
             else {
                 uc upperLeft  = img[imgOffset - imgWidth - 1];
                 uc upperRight = img[imgOffset - imgWidth + 1];
+                uc up         = img[imgOffset - imgWidth];
+                uc down       = img[imgOffset + imgWidth];
                 uc left       = img[imgOffset - 1];
                 uc right      = img[imgOffset + 1];
                 uc lowerLeft  = img[imgOffset + imgWidth - 1];
                 uc lowerRight = img[imgOffset + imgWidth + 1];
 
-                int sum = -upperLeft + upperRight + -2*left + 2*right + -lowerLeft + lowerRight;
+                //int sum = -upperLeft + upperRight + -2*left + 2*right + -lowerLeft + lowerRight;
+                int sum = -upperLeft - upperRight - 2*up + 2*down + lowerLeft + lowerRight;
                 //int sum = -left + right;
 
                 if(sum >= threshold)
@@ -348,14 +363,16 @@ int main(int argc, char** argv)
 
               // apply sobel edge detection
               filename += ".edges";
-              uc *sobelImg;
+              uc *sobelImg = (uc*) malloc(winWidth * winHeight * sizeof(uc));
               sobelEdgeDetection(h_containerImageGS, x, y, winWidth, winHeight, fc.container->width(), sobelImg);
-              saveImage(sobelImg, 0, 0, winWidth, winHeight, winWidth, filename.c_str());
+              //saveImage(sobelImg, 0, 0, winWidth, winHeight, winWidth, filename.c_str());
 
               // resize the window to 30x30
               uc window30x30[900];
-              resize(h_containerImageGS, x, y, winWidth, winHeight, fc.container->width(),
+              resize(sobelImg, 0, 0, winWidth, winHeight, winWidth,
                      window30x30, 0, 0, 30, 30, 30);
+	      toBlackAndWhite(window30x30, 0, 0, 30, 30, 30);
+	      saveImage(window30x30, 0, 0, 30, 30, 30, filename.c_str());
 
               // save window histograms
               float histogram[256];
