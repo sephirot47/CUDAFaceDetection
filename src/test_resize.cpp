@@ -277,7 +277,7 @@ void histogramEqualization(uc *img, int ox, int oy, int width, int height, int i
     }
 }
 
-uc getHeuristic9x9(uc *img) {
+uc getFirstStageHeuristic(uc *img) {
     int v = img[22] - (img[19]+img[20]+img[24]+img[25]+img[58])/5;
     return v < 0 ? 0 : v;
 }
@@ -319,6 +319,41 @@ void sobelEdgeDetection(uc *img, int ox, int oy, int winWidth, int winHeight, in
     }
 }
 
+uc getWindowMean(uc *img, int ox, int oy, int winWidth, int winHeight, int imgWidth) {
+    int sum = 0;
+    for(int y = oy; y < oy + winHeight; ++y)
+    {
+        for(int x = ox; x < ox + winWidth; ++x)
+        {
+            int offset = y * imgWidth + x;
+            sum += img[offset];
+        }
+    }
+    
+    return uc(sum / (winWidth * winHeight));
+}
+
+int getSecondStageHeuristic(uc *img) {
+    int sumDiff = 0;
+
+    // left eye
+    sumDiff += getWindowMean(img,2,4,9,5,30);
+    // right eye
+    sumDiff += getWindowMean(img,18,4,9,5,30);
+    // upper nose
+    sumDiff += 255-getWindowMean(img,11,1,6,13,30);
+    // lower nose
+    sumDiff += getWindowMean(img,10,15,9,5,30);
+    // left cheek
+    sumDiff += 255-getWindowMean(img,1,10,8,10,30);
+    // right cheek
+    sumDiff += 255-getWindowMean(img,19,10,8,10,30);
+    // mouth
+    sumDiff += getWindowMean(img,8,21,13,5,30);
+
+    return sumDiff;
+}
+
 int main(int argc, char** argv)
 {
   FaceDetection fc(argv[1]);
@@ -338,54 +373,61 @@ int main(int argc, char** argv)
       }
   }
 
-  const int heuristicThreshold = 140;
+  const int thresh1 = 140;
+  const int thresh2 = 900;
   int winWidth = 550;
   int winHeight = 550;
-  int step = 50;
+  int step = 18;
   for (int y = 0; y < fc.container->height() - winHeight; y += step)
   {
       for (int x = 0; x < fc.container->width() - winWidth; x += step)
       {
-          uc window9x9[81];
+          string filename = "output/win_" + to_string(x) + "_" + to_string(y);
+
+          // FIRST STAGE
+          // resize window to 9x9
+          uc window9x9[9*9];
           resize(h_containerImageGS, x, y, winWidth, winHeight, fc.container->width(),
                  window9x9, 0, 0, 9, 9, 9);
           histogramEqualization(window9x9, 0, 0, 9, 9, 9);
-          uc hv = getHeuristic9x9(window9x9);
 
-          //printf("%d ... H(%d,%d) -> %d\n", hv, x, y, hv);
-          if (hv >= heuristicThreshold)
+          uc hv1 = getFirstStageHeuristic(window9x9);
+          if (hv1 >= thresh1)
           {
-              // save candidate windows
-              printf("Saving window H(%d,%d): %d\n", x, y, hv);
-              string filename = "output/window";
-              filename += to_string(x); filename += to_string(y); filename += ".bmp";
-              saveImage(window9x9, 0, 0, 9, 9, 9, filename.c_str());
-
-              // apply sobel edge detection
-              filename += ".edges";
-              uc *sobelImg = (uc*) malloc(winWidth * winHeight * sizeof(uc));
-              sobelEdgeDetection(h_containerImageGS, x, y, winWidth, winHeight, fc.container->width(), sobelImg);
-              //saveImage(sobelImg, 0, 0, winWidth, winHeight, winWidth, filename.c_str());
-
-              // resize the window to 30x30
-              uc window30x30[900];
-              resize(sobelImg, 0, 0, winWidth, winHeight, winWidth,
-                     window30x30, 0, 0, 30, 30, 30);
-	      toBlackAndWhite(window30x30, 0, 0, 30, 30, 30);
-	      saveImage(window30x30, 0, 0, 30, 30, 30, filename.c_str());
+              // save first stage candidate windows
+              printf("Saving first stage candidate H1(%d,%d): %d\n", x, y, hv1);
+              saveImage(window9x9, 0, 0, 9, 9, 9, (filename + ".9x9").c_str());
 
               // save window histograms
-              float histogram[256];
+              /*float histogram[256];
               float maxv = getHistogram(h_containerImageGS, x, y, winWidth, winHeight, fc.container->width(), histogram);
-              filename += ".hist";
-              plotHistogram(histogram, maxv, filename.c_str());
-	      
-              fc.resultWindows.push_back( Box(x, y, winWidth, winHeight));
+              plotHistogram(histogram, maxv, (filename + ".hist").c_str());*/
+
+              // SECOND STAGE
+              // apply sobel edge detection
+              uc *sobelImg = (uc*) malloc(winWidth * winHeight * sizeof(uc));
+              sobelEdgeDetection(h_containerImageGS, x, y, winWidth, winHeight, fc.container->width(), sobelImg);
+
+              // resize window to 30x30
+              uc window30x30[30*30];
+              resize(sobelImg, 0, 0, winWidth, winHeight, winWidth,
+                     window30x30, 0, 0, 30, 30, 30);
+              toBlackAndWhite(window30x30, 0, 0, 30, 30, 30);
+
+              int hv2 = getSecondStageHeuristic(window30x30);
+              if (hv2 <= thresh2) {
+                  // save second stage candidate windows
+                  printf("Saving second stage candidate H2(%d,%d): %d\n", x, y, hv2);
+                  saveImage(window30x30, 0, 0, 30, 30, 30, (filename + ".30x30").c_str());
+                  saveImage(h_containerImageGS, x, y, winWidth, winHeight, fc.container->width(), (filename + ".bmp").c_str());
+
+                  fc.resultWindows.push_back( Box(x, y, winWidth, winHeight));
+              }
           }
       }
   }
   fc.saveResult();
-  printf("Result saved to 'output/result.bmp' !\n");
+  printf("Result saved to 'output/result.bmp'\n");
   //system("xdg-open output/result.bmp");
 }
 
