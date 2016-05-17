@@ -28,8 +28,8 @@ public:
 
 class Color {
 public:
-  uc r,g,b,a;
-  Color(uc _r, uc _g, uc _b, uc _a) { r=_r; g=_g; b=_b; a=_a; }
+  int r,g,b,a;
+  Color(int _r, int _g, int _b, int _a) { r=_r; g=_g; b=_b; a=_a; }
   string toString() {
     ostringstream ss;
     ss << "(" << r << "," << g << "," << b << "," << a << ")";
@@ -40,13 +40,14 @@ public:
 class Image
 {
 public:
+  uc *data;
   char* filename;
 
   Image(char* filename) {
     this->filename = filename;
     FILE *file = fopen(filename, "r");
     if (file != NULL) {
-        data = stbi_load_from_file(file, &_width, &_height, &comp, 4); // rgba
+        data = stbi_load_from_file(file, &_width, &_height, &comp, 3); // rgb
         fclose (file);
         printf("%s read successfully\n", filename);
     }
@@ -65,7 +66,6 @@ public:
   uc getGrayScale(Pixel p) { return grayscale(getColor(p)); }
 
 private:
-  uc *data;
   int _width, _height, comp;
   uc grayscale(const Color &c) { return 0.299*c.r + 0.587*c.g + 0.114*c.b; }
 };
@@ -92,7 +92,7 @@ public:
 
   void saveResult()
   {
-      int boxStroke = 2;
+      int boxStroke = 1;
       printf("Saving result...\n");
 
       uc *result = new uc[container->width() * container->height() * 3 * sizeof(uc)];
@@ -199,8 +199,7 @@ float getHistogram(uc *img, int ox, int oy, int width, int height, int imgWidth,
   
   float npixels = width * height;
   float unitProb = 1.0f/npixels;
-  
-  float maxv = 0.0f;
+  float maxfreq = 0.0f;
   for(int i = 0; i < 256; ++i) histogram[i] = 0;
   for(int y = oy; y < oy + height; ++y)
   {
@@ -209,10 +208,21 @@ float getHistogram(uc *img, int ox, int oy, int width, int height, int imgWidth,
 	  int offset = y * imgWidth + x;
 	  uc v = img[offset];
 	  histogram[v] += unitProb;
-	  if(histogram[v] > maxv) maxv = histogram[v];
+      if(histogram[v] > maxfreq) maxfreq = histogram[v];
       }
   }
-  return maxv;
+  return maxfreq;
+}
+
+float histogramHeuristic(float histogram[256], float maxFreq)
+{
+    //Worst case: 5.4;
+    float h = 0;
+    h += (histogram[10] / maxFreq);
+    h += (histogram[75] / maxFreq);
+    h += 3*fabs(0.8f - (histogram[190] / maxFreq));
+    h += (histogram[240] / maxFreq);
+    return h;
 }
 
 void plotHistogram(float histogram[256], float maxv, const char *filename)
@@ -319,7 +329,7 @@ void sobelEdgeDetection(uc *img, int ox, int oy, int winWidth, int winHeight, in
     }
 }
 
-uc getWindowMean(uc *img, int ox, int oy, int winWidth, int winHeight, int imgWidth) {
+uc getWindowMeanGS(uc *img, int ox, int oy, int winWidth, int winHeight, int imgWidth) {
     int sum = 0;
     for(int y = oy; y < oy + winHeight; ++y)
     {
@@ -333,23 +343,56 @@ uc getWindowMean(uc *img, int ox, int oy, int winWidth, int winHeight, int imgWi
     return uc(sum / (winWidth * winHeight));
 }
 
+Color getWindowMeanColor(uc *img, int ox, int oy, int winWidth, int winHeight, int imgWidth) {
+
+    Color csum(0,0,0,0);
+    for(int y = oy; y < oy + winHeight; ++y)
+    {
+        for(int x = ox; x < ox + winWidth; ++x)
+        {
+            int offset = (y * imgWidth + x) * 3;
+            csum.r += img[offset + 0];
+            csum.g += img[offset + 1];
+            csum.b += img[offset + 2];
+        }
+    }
+
+    int npixels = winWidth * winHeight;
+    Color c(csum.r / npixels, csum.g / npixels, csum.b / npixels, 0);
+
+    return c;
+}
+
 int getSecondStageHeuristic(uc *img) {
     int sumDiff = 0;
 
-    // left eye
-    sumDiff += getWindowMean(img,2,4,9,5,30);
-    // right eye
-    sumDiff += getWindowMean(img,18,4,9,5,30);
+    int leftEye = getWindowMeanGS(img,2,4,9,5,30);
+    sumDiff += leftEye;
+
+    int rightEye = getWindowMeanGS(img,18,4,9,5,30);
+    sumDiff += rightEye;
+
+    //simmetry
+    sumDiff += abs(rightEye - leftEye);
+
     // upper nose
-    sumDiff += 255-getWindowMean(img,11,1,6,13,30);
+    sumDiff += 255-getWindowMeanGS(img,11,1,6,13,30);
+
     // lower nose
-    sumDiff += getWindowMean(img,10,15,9,5,30);
+    sumDiff += abs(125 - getWindowMeanGS(img,10,15,9,5,30));
+
     // left cheek
-    sumDiff += 255-getWindowMean(img,1,10,8,10,30);
+    int leftCheek = 255-getWindowMeanGS(img,1,10,8,10,30);
+    sumDiff += leftCheek;
+
     // right cheek
-    sumDiff += 255-getWindowMean(img,19,10,8,10,30);
+    int rightCheek = 255-getWindowMeanGS(img,19,10,8,10,30);
+    sumDiff += rightCheek;
+
+    sumDiff += abs(leftCheek - rightCheek);
+
     // mouth
-    sumDiff += getWindowMean(img,8,21,13,5,30);
+    sumDiff += getWindowMeanGS(img,8,21,13,5,30);
 
     return sumDiff;
 }
@@ -373,11 +416,21 @@ int main(int argc, char** argv)
       }
   }
 
-  const int thresh1 = 140;
-  const int thresh2 = 900;
-  int winWidth = 550;
-  int winHeight = 550;
-  int step = 18;
+  const int thresh1 = 50; //higher = more restrictive
+  const int colorHeuristic = 100; //higher = less restrictive
+  const float histoThresh = 2.0f; //higher = less restrictive (0.0f->3.8f)
+  const int thresh2 = 750; //higher = less restrictive
+  int step = 25;
+  //int sizes[] = {30 * 2, 30*3, 30 * 4, 30 * 5, 30 * 6};
+  int sizes[] = {30 * 8, 30 * 10, 30 * 12, 30 * 14, 30 * 16, 30 * 18};
+
+  for(int i = 0; i < sizeof(sizes)/sizeof(int); ++i)
+  {
+  for(int j = 0; j < sizeof(sizes)/sizeof(int); ++j)
+  {
+  int winWidth = sizes[i];
+  int winHeight = sizes[j];
+  printf("Window: (%d,%d)\n", winWidth, winHeight);
   for (int y = 0; y < fc.container->height() - winHeight; y += step)
   {
       for (int x = 0; x < fc.container->width() - winWidth; x += step)
@@ -395,37 +448,57 @@ int main(int argc, char** argv)
           if (hv1 >= thresh1)
           {
               // save first stage candidate windows
-              printf("Saving first stage candidate H1(%d,%d): %d\n", x, y, hv1);
-              saveImage(window9x9, 0, 0, 9, 9, 9, (filename + ".9x9").c_str());
+              //printf("Saving first stage candidate H1(%d,%d): %d\n", x, y, hv1);
+              //saveImage(window9x9, 0, 0, 9, 9, 9, (filename + ".9x9").c_str());
 
               // save window histograms
-              /*float histogram[256];
-              float maxv = getHistogram(h_containerImageGS, x, y, winWidth, winHeight, fc.container->width(), histogram);
-              plotHistogram(histogram, maxv, (filename + ".hist").c_str());*/
+              float histogram[256];
+              float maxfreq = getHistogram(h_containerImageGS,
+                                           x, y, winWidth, winHeight,
+                                           fc.container->width(), histogram);
+              float hh = histogramHeuristic(histogram, maxfreq);
+              if(hh <= histoThresh)
+              {
 
-              // SECOND STAGE
-              // apply sobel edge detection
-              uc *sobelImg = (uc*) malloc(winWidth * winHeight * sizeof(uc));
-              sobelEdgeDetection(h_containerImageGS, x, y, winWidth, winHeight, fc.container->width(), sobelImg);
+                  Color c = getWindowMeanColor(fc.container->data, x, y, winWidth, winHeight, fc.container->width());
+                  int ch = abs(180-c.r) + abs(150-c.g) + abs(130-c.b);
+                  if(ch < colorHeuristic)
+                  {
+                      /*plotHistogram(histogram, maxv, (filename + ".hist").c_str());*/
 
-              // resize window to 30x30
-              uc window30x30[30*30];
-              resize(sobelImg, 0, 0, winWidth, winHeight, winWidth,
-                     window30x30, 0, 0, 30, 30, 30);
-              toBlackAndWhite(window30x30, 0, 0, 30, 30, 30);
+                      // SECOND STAGE
+                      // apply sobel edge detection
+                      uc *sobelImg = (uc*) malloc(winWidth * winHeight * sizeof(uc));
+                      sobelEdgeDetection(h_containerImageGS, x, y, winWidth, winHeight, fc.container->width(), sobelImg);
 
-              int hv2 = getSecondStageHeuristic(window30x30);
-              if (hv2 <= thresh2) {
-                  // save second stage candidate windows
-                  printf("Saving second stage candidate H2(%d,%d): %d\n", x, y, hv2);
-                  saveImage(window30x30, 0, 0, 30, 30, 30, (filename + ".30x30").c_str());
-                  saveImage(h_containerImageGS, x, y, winWidth, winHeight, fc.container->width(), (filename + ".bmp").c_str());
+                      // resize window to 30x30
+                      uc window30x30[30*30];
+                      resize(sobelImg, 0, 0, winWidth, winHeight, winWidth,
+                             window30x30, 0, 0, 30, 30, 30);
+                      toBlackAndWhite(window30x30, 0, 0, 30, 30, 30);
 
-                  fc.resultWindows.push_back( Box(x, y, winWidth, winHeight));
+                      int hv2 = getSecondStageHeuristic(window30x30);
+                      if (hv2 <= thresh2) {
+                          // save window histograms
+                          //float histogram[256];
+                          //float maxv = getHistogram(h_containerImageGS, x, y, winWidth, winHeight, fc.container->width(), histogram);
+                          //plotHistogram(histogram, maxv, (filename + ".hist").c_str());
+
+                          // save second stage candidate windows
+                          printf("Saving second stage candidate H2(%d,%d): %d\n", x, y, hv2);
+                          saveImage(window30x30, 0, 0, 30, 30, 30, (filename + ".30x30" + ".h" + to_string(hv2)).c_str());
+                          //saveImage(h_containerImageGS, x, y, winWidth, winHeight, fc.container->width(), (filename + ".bmp").c_str());
+
+                          fc.resultWindows.push_back( Box(x, y, winWidth, winHeight));
+                      }
+                  }
               }
           }
       }
   }
+  }
+  }
+
   fc.saveResult();
   printf("Result saved to 'output/result.bmp'\n");
   //system("xdg-open output/result.bmp");
