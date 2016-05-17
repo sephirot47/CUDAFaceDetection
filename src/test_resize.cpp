@@ -416,20 +416,29 @@ int main(int argc, char** argv)
       }
   }
 
-  const int thresh1 = 50; //higher = more restrictive
-  const int colorHeuristic = 100; //higher = less restrictive
-  const float histoThresh = 2.0f; //higher = less restrictive (0.0f->3.8f)
-  const int thresh2 = 750; //higher = less restrictive
-  int step = 25;
+  const int thresh1 = 40; //higher = more restrictive
+  const float histoThresh = 99.9f;//3.0f; //higher = less restrictive (0.0f->3.8f)
+  const int thresh2 = 550; //higher = less restrictive
+  int step = 5;
   //int sizes[] = {30 * 2, 30*3, 30 * 4, 30 * 5, 30 * 6};
-  int sizes[] = {30 * 8, 30 * 10, 30 * 12, 30 * 14, 30 * 16, 30 * 18};
+  int sizes[] = {
+                  30 * 2
+                 ,30 * 3
+                 ,30 * 4
+                 ,30 * 5
+                 ,30 * 6
+                 //,30 * 7
+                 //,30 * 8
+                 //,30 * 10
+                 //,30 * 14
+                };
 
   for(int i = 0; i < sizeof(sizes)/sizeof(int); ++i)
   {
-  for(int j = 0; j < sizeof(sizes)/sizeof(int); ++j)
+  //for(int j = 0; j < sizeof(sizes)/sizeof(int); ++j)
   {
   int winWidth = sizes[i];
-  int winHeight = sizes[j];
+  int winHeight = sizes[i];
   printf("Window: (%d,%d)\n", winWidth, winHeight);
   for (int y = 0; y < fc.container->height() - winHeight; y += step)
   {
@@ -459,38 +468,33 @@ int main(int argc, char** argv)
               float hh = histogramHeuristic(histogram, maxfreq);
               if(hh <= histoThresh)
               {
+                  /*plotHistogram(histogram, maxv, (filename + ".hist").c_str());*/
 
-                  Color c = getWindowMeanColor(fc.container->data, x, y, winWidth, winHeight, fc.container->width());
-                  int ch = abs(180-c.r) + abs(150-c.g) + abs(130-c.b);
-                  if(ch < colorHeuristic)
-                  {
-                      /*plotHistogram(histogram, maxv, (filename + ".hist").c_str());*/
+                  // SECOND STAGE
+                  // apply sobel edge detection
+                  uc *sobelImg = (uc*) malloc(winWidth * winHeight * sizeof(uc));
+                  sobelEdgeDetection(h_containerImageGS, x, y, winWidth, winHeight, fc.container->width(), sobelImg);
 
-                      // SECOND STAGE
-                      // apply sobel edge detection
-                      uc *sobelImg = (uc*) malloc(winWidth * winHeight * sizeof(uc));
-                      sobelEdgeDetection(h_containerImageGS, x, y, winWidth, winHeight, fc.container->width(), sobelImg);
+                  // resize window to 30x30
+                  uc window30x30[30*30];
+                  resize(sobelImg, 0, 0, winWidth, winHeight, winWidth,
+                         window30x30, 0, 0, 30, 30, 30);
+                  toBlackAndWhite(window30x30, 0, 0, 30, 30, 30);
 
-                      // resize window to 30x30
-                      uc window30x30[30*30];
-                      resize(sobelImg, 0, 0, winWidth, winHeight, winWidth,
-                             window30x30, 0, 0, 30, 30, 30);
-                      toBlackAndWhite(window30x30, 0, 0, 30, 30, 30);
+                  free(sobelImg);
+                  int hv2 = getSecondStageHeuristic(window30x30);
+                  if (hv2 <= thresh2) {
+                      // save window histograms
+                      //float histogram[256];
+                      //float maxv = getHistogram(h_containerImageGS, x, y, winWidth, winHeight, fc.container->width(), histogram);
+                      //plotHistogram(histogram, maxv, (filename + ".hist").c_str());
 
-                      int hv2 = getSecondStageHeuristic(window30x30);
-                      if (hv2 <= thresh2) {
-                          // save window histograms
-                          //float histogram[256];
-                          //float maxv = getHistogram(h_containerImageGS, x, y, winWidth, winHeight, fc.container->width(), histogram);
-                          //plotHistogram(histogram, maxv, (filename + ".hist").c_str());
+                      // save second stage candidate windows
+                      printf("Saving second stage candidate H2(%d,%d): %d\n", x, y, hv2);
+                      saveImage(window30x30, 0, 0, 30, 30, 30, (filename + ".30x30" + ".h" + to_string(hv2)).c_str());
+                      //saveImage(h_containerImageGS, x, y, winWidth, winHeight, fc.container->width(), (filename + ".bmp").c_str());
 
-                          // save second stage candidate windows
-                          printf("Saving second stage candidate H2(%d,%d): %d\n", x, y, hv2);
-                          saveImage(window30x30, 0, 0, 30, 30, 30, (filename + ".30x30" + ".h" + to_string(hv2)).c_str());
-                          //saveImage(h_containerImageGS, x, y, winWidth, winHeight, fc.container->width(), (filename + ".bmp").c_str());
-
-                          fc.resultWindows.push_back( Box(x, y, winWidth, winHeight));
-                      }
+                      fc.resultWindows.push_back( Box(x, y, winWidth, winHeight));
                   }
               }
           }
