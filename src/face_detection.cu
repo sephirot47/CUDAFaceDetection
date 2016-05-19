@@ -4,8 +4,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <vector>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
+
+#define IMG_WIDTH 1024
+#define IMG_HEIGHT 1024
+#define NUM_THREADS 1024
+#define NUM_BLOCKS 256
+
+#define THRESH_9x9 40
+#define THRESH_30x30 550
 
 #include "stbi.h"
 #include "stbi_write.h"
@@ -93,42 +102,69 @@ private:
 
 };
 
+struct Box { int x,y,w,h; Box(int _x, int _y, int _w, int _h) { x=_x; y=_y; w=_w; h=_h; } };
 
 class FaceDetection
 {
 public:
   Image *image;
+  vector<Box> resultWindows;
   
   FaceDetection(char* imageFile)
   {
     image = new Image(imageFile);
   }
 
-  void saveResult(Pixel origin, int windowWidth, int windowHeight)
+  void saveResult()
   {
+      int boxStroke = 1;
+      printf("Saving result...\n");
+
       uc *result = new uc[image->width() * image->height() * 3 * sizeof(uc)];
-      for(int y = 0; y < image->height(); ++y) {
-          for(int x = 0; x < image->width();  ++x) {
+      for(int y = 0; y < image->height(); ++y)
+      {
+          for(int x = 0; x < image->width();  ++x)
+          {
               Pixel p(x,y);
-              int offset = (y * image->width() + x) * 3;
-              if (belongsTo(p, origin, windowWidth, windowHeight)) {
-                  result[offset + 0] = image->getColor(p).r;
-                  result[offset + 1] = 255;
-                  result[offset + 2] = image->getColor(p).b;
+              bool isBoundary = false;
+              for(Box b : resultWindows)
+              {
+                  if(belongsTo(p, b))
+                  {
+                      if(abs(x - b.x) <= boxStroke ||
+                         abs(y - b.y) <= boxStroke ||
+                         abs(x - (b.x + b.w - 1)) <= boxStroke ||
+                         abs(y - (b.y + b.h - 1)) <= boxStroke)
+                      {
+                          isBoundary = true;
+                      }
+                  }
               }
-              else {
+
+              int offset = (y * image->width() + x) * 3;
+              if(isBoundary)
+              {
+                  result[offset + 0] = 255 - image->getColor(p).r;
+                  result[offset + 1] = 255 - image->getColor(p).g;
+                  result[offset + 2] = 255 - image->getColor(p).b;
+              }
+
+              else
+              {
                   result[offset + 0] = image->getColor(p).r;
                   result[offset + 1] = image->getColor(p).g;
                   result[offset + 2] = image->getColor(p).b;
               }
           }
       }
+
       stbi_write_bmp("output/result.bmp", image->width(), image->height(), 3, result);
+      //saveImage(result, 0, 0, image->width(), image->height(), image->width()*3, );
   }
 
 private:
-  bool belongsTo(Pixel p, Pixel o, int w, int h) {
-      return p.x >= o.x && p.x < o.x+w && p.y >= o.y && p.y < o.y+h;
+  bool belongsTo(Pixel p, Box b) {
+      return p.x >= b.x && p.x <= b.x+b.w && p.y >= b.y && p.y <= b.y+b.h;
   }
 
 };
@@ -150,45 +186,8 @@ void saveImage(uc *img, int x, int y, int width, int height, int imgWidth, const
     free(aux);
 }
 
-uc getHeuristic9x9(uc *img) {
-    return img[22] - (img[19]+img[20]+img[24]+img[25])/4;
-}
-
-//Increase contrast
-void histogramEqualization(uc *img, int ox, int oy, int width, int height, int imgWidth)
-{
-    int intensityToNPixels[256];
-    for(int i = 0; i < 256; ++i) intensityToNPixels[i] = 0;
-
-    for(int y = oy; y < oy + height; ++y)
-    {
-        for(int x = ox; x < ox + width; ++x)
-        {
-            int offset = y * imgWidth + x;
-            uc v = img[offset];
-            intensityToNPixels[v]++;
-        }
-    }
-
-    int npixels = width * height;
-    float accumulatedProbs[256];
-    accumulatedProbs[0] = intensityToNPixels[0];
-    for(int i = 1; i < 256; ++i) accumulatedProbs[i] = accumulatedProbs[i-1] + intensityToNPixels[i];
-
-    for(int y = oy; y < oy + height; ++y)
-    {
-        for(int x = ox; x < ox + width; ++x)
-        {
-            fflush(stdout);
-            int offset = y * imgWidth + x;
-            uc v = img[offset];
-            img[offset] = floor( 255 * (accumulatedProbs[v] / npixels) );
-        }
-    }
-}
-
-//Always to a smaller size
-void resize(uc *src, int srcx, int srcy, int srcw, int srch, int srcTotalWidth, //x,y,width,height
+// Resize always to a smaller size -> downsample
+__host__ __device__ void resize(uc *src, int srcx, int srcy, int srcw, int srch, int srcTotalWidth, //x,y,width,height
             uc *dst, int dstx, int dsty, int dstw, int dsth, int dstTotalWidth) //x,y,width,height
 {
     //Every square of size (bw,bh), will be substituted
@@ -222,27 +221,176 @@ void resize(uc *src, int srcx, int srcy, int srcw, int srch, int srcTotalWidth, 
     }
 }
 
-__global__ void getWindowDiff(uc *imgContainer, int imageWidth, int imageHeight,
-                              int  *resultMatrix, unsigned int step)
+
+__device__ float getHistogram(uc *img, int ox, int oy, int width, int height, int imgWidth, float histogram[256]) {
+
+  float npixels = width * height;
+  float unitProb = 1.0f/npixels;
+  float maxfreq = 0.0f;
+  for(int i = 0; i < 256; ++i) histogram[i] = 0;
+  for(int y = oy; y < oy + height; ++y)
+  {
+      for(int x = ox; x < ox + width; ++x)
+      {
+      int offset = y * imgWidth + x;
+      uc v = img[offset];
+      histogram[v] += unitProb;
+      if(histogram[v] > maxfreq) maxfreq = histogram[v];
+      }
+  }
+  return maxfreq;
+}
+
+__device__ void toBlackAndWhite(uc *img, int ox, int oy, int width, int height, int imgWidth)
 {
-return;
+    for(int y = oy; y < oy + height; ++y)
+    {
+        for(int x = ox; x < ox + width; ++x)
+        {
+            int offset = y * imgWidth + x;
+            uc v = img[offset];
+            img[offset] = v > 200 ? 255 : 0;
+        }
+    }
+}
+
+// Increase contrast
+__device__ void histogramEqualization(uc *img, int ox, int oy, int width, int height, int imgWidth)
+{
+    float histogram[256];
+    getHistogram(img, ox, oy, width, height, imgWidth, histogram);
+
+    float accumulatedProbs[256];
+    accumulatedProbs[0] = histogram[0];
+    for(int i = 1; i < 256; ++i) accumulatedProbs[i] = accumulatedProbs[i-1] + histogram[i];
+
+    for(int y = oy; y < oy + height; ++y)
+    {
+        for(int x = ox; x < ox + width; ++x)
+        {
+            int offset = y * imgWidth + x;
+            uc v = img[offset];
+            img[offset] = floor(255 * accumulatedProbs[v]);
+        }
+    }
+}
+
+__device__ uc getFirstStageHeuristic(uc *img) {
+    int v = img[22] - (img[19]+img[20]+img[24]+img[25]+img[58])/5;
+    return v < 0 ? 0 : v;
+}
+
+// Find edges in horizontal direction
+__device__ void sobelEdgeDetection(uc *img, int ox, int oy, int winWidth, int winHeight, int imgWidth, uc *&sobelImg)
+{
+    uc threshold = 24;
+
+    for(int y = oy; y < oy + winHeight; ++y)
+    {
+        for(int x = ox; x < ox + winWidth; ++x)
+        {
+            int imgOffset = y * imgWidth + x;
+            int winOffset = (y-oy) * winWidth + (x-ox);
+
+            if (y == oy or y == oy+winHeight-1 or x == ox or x == ox+winWidth-1)
+                sobelImg[winOffset] = 255;
+            else {
+                uc upperLeft  = img[imgOffset - imgWidth - 1];
+                uc upperRight = img[imgOffset - imgWidth + 1];
+                uc up         = img[imgOffset - imgWidth];
+                uc down       = img[imgOffset + imgWidth];
+                uc lowerLeft  = img[imgOffset + imgWidth - 1];
+                uc lowerRight = img[imgOffset + imgWidth + 1];
+
+                int sum = -upperLeft - upperRight - 2*up + 2*down + lowerLeft + lowerRight;
+                if(sum >= threshold)
+                    sobelImg[winOffset] = 0;
+                else
+                    sobelImg[winOffset] = 255;
+            }
+        }
+    }
+}
+
+__device__ uc getWindowMeanGS(uc *img, int ox, int oy, int winWidth, int winHeight, int imgWidth) {
+    int sum = 0;
+    for(int y = oy; y < oy + winHeight; ++y)
+    {
+        for(int x = ox; x < ox + winWidth; ++x)
+        {
+            int offset = y * imgWidth + x;
+            sum += img[offset];
+        }
+    }
+
+    return uc(sum / (winWidth * winHeight));
+}
+
+__device__ int getSecondStageHeuristic(uc *img) {
+    int sumDiff = 0;
+    int leftEye = getWindowMeanGS(img,2,4,9,5,30);
+    sumDiff += leftEye;
+    int rightEye = getWindowMeanGS(img,18,4,9,5,30);
+    sumDiff += rightEye;
+    sumDiff += abs(rightEye - leftEye); // simmetry
+    sumDiff += 255-getWindowMeanGS(img,11,1,6,13,30); // upper nose
+    sumDiff += abs(125 - getWindowMeanGS(img,10,15,9,5,30)); // lower nose
+    int leftCheek = 255-getWindowMeanGS(img,1,10,8,10,30); // left cheek
+    sumDiff += leftCheek;
+    int rightCheek = 255-getWindowMeanGS(img,19,10,8,10,30); // right cheek
+    sumDiff += rightCheek;
+    sumDiff += abs(leftCheek - rightCheek);
+    sumDiff += getWindowMeanGS(img,8,21,13,5,30); // mouth
+    return sumDiff;
+}
+
+__global__ void detectFaces(uc *img,
+                            int winWidth, int winHeight,
+                            uc  *resultMatrix)
+{
     if(threadIdx.x != 0) return;
     //printf("threadIdx(%d,%d), blockIdx(%d,%d), blockDim(%d,%d).\n",
               //threadIdx.x, threadIdx.y, blockIdx.x, blockIdx.y, blockDim.x, blockDim.y);
 
-    int ox = blockIdx.x * step;
-    int oy = blockIdx.y * step;
+    int step = (IMG_WIDTH - winWidth) / NUM_BLOCKS;
+    int x = blockIdx.x * step;
+    int y = blockIdx.y * step;
 
-    int cOffset = oy * imageWidth + ox;
 
-    //FIRST STEP: Resize the current window to 9x9
-    // For every pixel of the 9x9 resized image,
-    // how many pixels of the current window have to be sampled?
-    // (do the mean with them)
-    //For each pixel in the 9x9 image
-    // TODO
+    // FIRST HEURISTIC
+    __shared__ uc window9x9[9*9];
+    resize(img,
+           x, y, winWidth, winHeight, IMG_WIDTH,
+           window9x9,
+           0, 0, 9, 9, 9);
+    histogramEqualization(window9x9, 0, 0, 9, 9, 9);
+    uc hv1 = getFirstStageHeuristic(window9x9);
 
-    resultMatrix[cOffset] = 0;
+    int cOffset = y * IMG_WIDTH + x;
+    if (hv1 >= THRESH_9x9)
+    {
+        // SECOND HEURISTIC
+        uc *sobelImg = (uc*) malloc(winWidth * winHeight * sizeof(uc));
+        sobelEdgeDetection(img, x, y, winWidth, winHeight, IMG_WIDTH, sobelImg);
+
+        __shared__ uc window30x30[30*30];
+        resize(sobelImg,
+               0, 0, winWidth, winHeight, winWidth,
+               window30x30,
+               0, 0, 30, 30, 30);
+        toBlackAndWhite(window30x30, 0, 0, 30, 30, 30);
+
+        free(sobelImg);
+
+        int hv2 = getSecondStageHeuristic(window30x30);
+        if (hv2 <= THRESH_30x30)
+        {
+            // Save result! We detected a face yayy
+            resultMatrix[cOffset] = 1;
+        }
+        else resultMatrix[cOffset] = 0;
+    }
+    else resultMatrix[cOffset] = 0;
 }
 
 void CheckCudaError(char sms[], int line);
@@ -253,104 +401,87 @@ int main(int argc, char** argv)
   for (int i = 0; i < argc; ++i) { cout << argv[i] << endl; }
 
 
+  //Read input
   FaceDetection fc(argv[1]);
+  printf("image File: %s, size(%d px, %d px)\n",
+         fc.image->filename, fc.image->width(), fc.image->height());
+  //
 
 
-  unsigned int nThreads = 1024;
-  unsigned int nBlocks = 254; // Assuming square matrices
-  dim3 dimGrid(nBlocks, nBlocks, 1); //(nBlocks.x, nBlocks.y, 1)
-  dim3 dimBlock(nThreads, 1, 1); //(nThreads.x, nThreads.y, 1)
-  int windowWidth = 250;
-  unsigned int dw = fc.image->width() - windowWidth;
-  unsigned int step = dw / nBlocks;
-  printf("step: %d\n", step);
+  //Adapt input
+  int numBytesImageOriginal = fc.image->width() * fc.image->height() * sizeof(uc);
+  uc *h_imageGSOriginal = (uc*) malloc(numBytesImageOriginal);
+  printf("Adapting input. Creating grayscale image....\n");
+  for(int y = 0; y < fc.image->height(); ++y) {
+      for(int x = 0; x < fc.image->width(); ++x) {
+          h_imageGSOriginal[y * fc.image->width() + x] = fc.image->getGrayScale(Pixel(x,y));
+      }
+  }
 
-  int numBytesContainer = fc.image->width() * fc.image->height() * sizeof(uc);
-  int numBytesResultMatrix = numBytesContainer * sizeof(int) / sizeof(uc);
+  printf("Resizing original image....\n");
+  int numBytesImage = IMG_WIDTH * IMG_HEIGHT * sizeof(uc);
+  uc *h_imageGS = (uc*) malloc(numBytesImage);
+  resize(h_imageGSOriginal,
+         0, 0, fc.image->width(), fc.image->height(), fc.image->width(),
+         h_imageGS,
+         0, 0, IMG_WIDTH, IMG_HEIGHT, IMG_WIDTH
+         );
+  //
 
-  printf("Container File: %s, size(%d px, %d px), bytes(%d B)\n",
-         fc.image->filename, fc.image->width(), fc.image->height(),
-         numBytesContainer);
-  
-  // Obtener Memoria en el host
-  printf("Getting memory in the host to allocate GS images and resultMatrix...\n");
-  int *h_resultDiffMatrix = (int*) malloc(numBytesResultMatrix);
-  uc *h_imageGS = (uc*) malloc(numBytesContainer);
-  printf("Memory in the host got.\n");
 
   //Obtiene Memoria [pinned] en el host
   //cudaMallocHost((float**)&h_x, numBytes);
   //cudaMallocHost((float**)&h_y, numBytes);
   //cudaMallocHost((float**)&H_y, numBytes);   // Solo se usa para comprobar el resultado
 
-  printf("Filling resultMatrix in the host...\n");
-  for(int y = 0; y < fc.image->height(); ++y) {
-      for(int x = 0; x < fc.image->width(); ++x) {
-          h_resultDiffMatrix[y * fc.image->width() + x] = -1;
-      }
-  }
+  printf("Getting memory in the host to allocate resultMatrix...\n");
+  int numBytesResultMatrix = NUM_BLOCKS * NUM_BLOCKS * sizeof(uc);
+  uc *h_resultMatrix = (uc*) malloc(numBytesResultMatrix);
 
-  printf("Filling ContainerGS in the host with GS values...\n");
-  for(int y = 0; y < fc.image->height(); ++y) {
-      for(int x = 0; x < fc.image->width(); ++x) {
-          h_imageGS[y * fc.image->width() + x] = fc.image->getGrayScale(Pixel(x,y));
-      }
-  }
+  printf("Getting memory in the device...\n");
+  uc *d_imageGS, *d_resultMatrix;
+  cudaMalloc((uc**)&d_imageGS, numBytesImage);
+  cudaMalloc((uc**)&d_resultMatrix, numBytesResultMatrix); //result diff matrix
+  CheckCudaError((char *) "Get Device memory", __LINE__);
 
-
-  //For every pixel(x,y), it contains the heuristic value of the window beginning in that pixel
-  int *d_resultDiffMatrix;
-  uc *d_imageGS;
-
-  // Obtener Memoria en el device
-  printf("Getting memory in the device to allocate GS images, resultMatrix, and resizeMatrices...\n");
-  cudaMalloc((int**)&d_resultDiffMatrix, numBytesResultMatrix); //result diff matrix
-  cudaMalloc((uc**)&d_imageGS, numBytesContainer);
-  CheckCudaError((char *) "Obtener Memoria en el device", __LINE__);
-
-  // Copiar datos desde el host en el device
-  printf("Copying matrices in the host to the device...\n");
-  cudaMemcpy(d_resultDiffMatrix, h_resultDiffMatrix, numBytesResultMatrix, cudaMemcpyHostToDevice);
-  cudaMemcpy(d_imageGS, h_imageGS, numBytesContainer, cudaMemcpyHostToDevice);
-  CheckCudaError((char *) "Copiar Datos Host --> Device", __LINE__);
+  printf("Copying matrices from host to device...\n");
+  cudaMemcpy(d_resultMatrix, h_resultMatrix, numBytesResultMatrix, cudaMemcpyHostToDevice);
+  cudaMemcpy(d_imageGS, h_imageGS, numBytesImage, cudaMemcpyHostToDevice);
+  CheckCudaError((char *) "Copy data from host to device", __LINE__);
 
   cudaDeviceSynchronize();
-  
-  // Ejecutar el kernel
-  printf("Executing kernel getWindowDiff...\n");
-  getWindowDiff<<<dimGrid, dimBlock>>>(
-         d_imageGS, fc.image->width(), fc.image->height(),
-         d_resultDiffMatrix, step);
 
-  printf("Histogram equalization...");
-  histogramEqualization(h_imageGS, 340, 440, 270, 250, fc.image->width());
-  
-  printf("Resizing...");
-  resize(h_imageGS, 340, 440, 270, 250, fc.image->width(),
-         h_imageGS, 0, 0, 9, 9, fc.image->width());
-  
-  printf("Saving image..."); fflush(stdout);
-  saveImage(h_imageGS, 0, 0, 9, 9, fc.image->width(), "test.bmp");
+  dim3 dimGrid(NUM_BLOCKS, NUM_BLOCKS, 1);
+  dim3 dimBlock(NUM_THREADS, 1, 1);
+  printf("Executing kernel detectFaces...\n");
+  detectFaces<<<dimGrid, dimBlock>>>(
+         d_imageGS,
+         550, 550,
+         d_resultMatrix);
 
   cudaDeviceSynchronize();
   CheckCudaError((char *) "Invocar Kernel", __LINE__);
 
-  // Obtener el resultado desde el host
   printf("Retrieving resultMatrix from device to host...\n");
-  cudaMemcpy(h_resultDiffMatrix, d_resultDiffMatrix, numBytesResultMatrix, cudaMemcpyDeviceToHost);
-  CheckCudaError((char *) "Copiar Datos Device --> Host", __LINE__);
+  cudaMemcpy(h_resultMatrix, d_resultMatrix, numBytesResultMatrix, cudaMemcpyDeviceToHost);
+  CheckCudaError((char *) "Retrieving resultMatrix from device to host", __LINE__);
 
   // Liberar Memoria del device
   printf("Freeing device memory...\n");
-  cudaFree(d_resultDiffMatrix);
+  cudaFree(d_resultMatrix);
   cudaFree(d_imageGS);
 
   cudaDeviceSynchronize();
 
-  //TODO: treat result  
-
-  printf("nThreads: %d\n", nThreads);
-  printf("nBlocks: %d\n", nBlocks);
+  //TODO: treat result
+  for(int i = 0; i < NUM_BLOCKS; ++i)
+  {
+      for(int j = 0; j < NUM_BLOCKS; ++j)
+      {
+          printf("%d ", h_resultMatrix[i * NUM_BLOCKS + j]);
+      }
+      printf("\n");
+  }
 }
 
 
