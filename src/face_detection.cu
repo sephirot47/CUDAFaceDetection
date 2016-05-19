@@ -11,7 +11,7 @@
 #define IMG_WIDTH 1024
 #define IMG_HEIGHT 1024
 #define NUM_THREADS 1024
-#define NUM_BLOCKS 256
+#define NUM_BLOCKS 254
 
 #define THRESH_9x9 40
 #define THRESH_30x30 550
@@ -257,10 +257,10 @@ __device__ void toBlackAndWhite(uc *img, int ox, int oy, int width, int height, 
 // Increase contrast
 __device__ void histogramEqualization(uc *img, int ox, int oy, int width, int height, int imgWidth)
 {
-    float histogram[256];
+    __shared__ float histogram[256];
     getHistogram(img, ox, oy, width, height, imgWidth, histogram);
 
-    float accumulatedProbs[256];
+    __shared__ float accumulatedProbs[256];
     accumulatedProbs[0] = histogram[0];
     for(int i = 1; i < 256; ++i) accumulatedProbs[i] = accumulatedProbs[i-1] + histogram[i];
 
@@ -349,8 +349,6 @@ __global__ void detectFaces(uc *img,
                             uc  *resultMatrix)
 {
     if(threadIdx.x != 0) return;
-    //printf("threadIdx(%d,%d), blockIdx(%d,%d), blockDim(%d,%d).\n",
-              //threadIdx.x, threadIdx.y, blockIdx.x, blockIdx.y, blockDim.x, blockDim.y);
 
     int step = (IMG_WIDTH - winWidth) / NUM_BLOCKS;
     int x = blockIdx.x * step;
@@ -365,7 +363,6 @@ __global__ void detectFaces(uc *img,
            0, 0, 9, 9, 9);
     histogramEqualization(window9x9, 0, 0, 9, 9, 9);
     uc hv1 = getFirstStageHeuristic(window9x9);
-
     int cOffset = y * IMG_WIDTH + x;
     if (hv1 >= THRESH_9x9)
     {
