@@ -281,33 +281,37 @@ __device__ uc getFirstStageHeuristic(uc *img) {
 }
 
 // Find edges in horizontal direction
-__device__ void sobelEdgeDetection(uc *img, int ox, int oy, int winWidth, int winHeight, int imgWidth, uc *&sobelImg)
+__device__ void sobelEdgeDetection(uc *img, int ox, int oy, int winWidth, int winHeight, int imgWidth, uc *sobelImg)
 {
     uc threshold = 24;
 
-    for(int y = oy; y < oy + winHeight; ++y)
+    //unsigned int i = ox + threadIdx.x + oy * imgWidth;
+    int size = winWidth * winHeight;
+    for (int i = threadIdx.x; i < size; i+=NUM_THREADS)
     {
-        for(int x = ox; x < ox + winWidth; ++x)
-        {
-            int imgOffset = y * imgWidth + x;
-            int winOffset = (y-oy) * winWidth + (x-ox);
+        int wx = i % winWidth;
+        int wy = i / winWidth;
+        int winOffset = wy * winWidth + wx;
 
-            if (y == oy or y == oy+winHeight-1 or x == ox or x == ox+winWidth-1)
+        int x = ox + wx;
+        int y = oy + wy;
+        int imgOffset = y * imgWidth + x;
+
+        if (y == oy or y == oy+winHeight-1 or x == ox or x == ox+winWidth-1)
+            sobelImg[winOffset] = 255;
+        else {
+            uc upperLeft  = img[imgOffset - imgWidth - 1];
+            uc upperRight = img[imgOffset - imgWidth + 1];
+            uc up         = img[imgOffset - imgWidth];
+            uc down       = img[imgOffset + imgWidth];
+            uc lowerLeft  = img[imgOffset + imgWidth - 1];
+            uc lowerRight = img[imgOffset + imgWidth + 1];
+
+            int sum = -upperLeft - upperRight - 2*up + 2*down + lowerLeft + lowerRight;
+            if(sum >= threshold)
+                sobelImg[winOffset] = 0;
+            else
                 sobelImg[winOffset] = 255;
-            else {
-                uc upperLeft  = img[imgOffset - imgWidth - 1];
-                uc upperRight = img[imgOffset - imgWidth + 1];
-                uc up         = img[imgOffset - imgWidth];
-                uc down       = img[imgOffset + imgWidth];
-                uc lowerLeft  = img[imgOffset + imgWidth - 1];
-                uc lowerRight = img[imgOffset + imgWidth + 1];
-
-                int sum = -upperLeft - upperRight - 2*up + 2*down + lowerLeft + lowerRight;
-                if(sum >= threshold)
-                    sobelImg[winOffset] = 0;
-                else
-                    sobelImg[winOffset] = 255;
-            }
         }
     }
 }
@@ -356,36 +360,44 @@ __global__ void detectFaces(uc *img,
 
 
     // FIRST HEURISTIC
-    __shared__ uc window9x9[9*9];
-    resize(img,
-           x, y, winWidth, winHeight, IMG_WIDTH,
-           window9x9,
-           0, 0, 9, 9, 9);
-    histogramEqualization(window9x9, 0, 0, 9, 9, 9);
-    uc hv1 = getFirstStageHeuristic(window9x9);
+    __shared__ uc window30x30[30*30];
+    __shared__ uc hv1;
+    if(threadIdx.x == 0) {
+        resize(img,
+               x, y, winWidth, winHeight, IMG_WIDTH,
+               window30x30,
+               0, 0, 9, 9, 9);
+        histogramEqualization(window30x30, 0, 0, 9, 9, 9);
+        hv1 = getFirstStageHeuristic(window30x30);
+    }
+
+    __syncthreads();
+
     int cOffset = y * IMG_WIDTH + x;
     if (hv1 >= THRESH_9x9)
     {
         // SECOND HEURISTIC
-        uc *sobelImg = (uc*) malloc(winWidth * winHeight * sizeof(uc));
+        //uc *sobelImg = (uc*) malloc(winWidth * winHeight * sizeof(uc));
+        __shared__ uc sobelImg[200*200];
         sobelEdgeDetection(img, x, y, winWidth, winHeight, IMG_WIDTH, sobelImg);
 
-        __shared__ uc window30x30[30*30];
-        resize(sobelImg,
-               0, 0, winWidth, winHeight, winWidth,
-               window30x30,
-               0, 0, 30, 30, 30);
-        toBlackAndWhite(window30x30, 0, 0, 30, 30, 30);
+        if(threadIdx.x == 0) {
+            resize(sobelImg,
+                   0, 0, winWidth, winHeight, winWidth,
+                   window30x30,
+                   0, 0, 30, 30, 30);
+            toBlackAndWhite(window30x30, 0, 0, 30, 30, 30);
 
-        free(sobelImg);
+            //free(sobelImg);
 
-        int hv2 = getSecondStageHeuristic(window30x30);
-        if (hv2 <= THRESH_30x30)
-        {
-            // Save result! We detected a face yayy
-            resultMatrix[cOffset] = 1;
+            int hv2 = getSecondStageHeuristic(window30x30);
+            if (hv2 <= THRESH_30x30)
+            {
+                // Save result! We detected a face yayy
+                resultMatrix[cOffset] = 1;
+            }
+            else resultMatrix[cOffset] = 0;
         }
-        else resultMatrix[cOffset] = 0;
     }
     else resultMatrix[cOffset] = 0;
 }
@@ -453,7 +465,7 @@ int main(int argc, char** argv)
   printf("Executing kernel detectFaces...\n");
   detectFaces<<<dimGrid, dimBlock>>>(
          d_imageGS,
-         550, 550,
+         70, 100,
          d_resultMatrix);
 
   cudaDeviceSynchronize();
