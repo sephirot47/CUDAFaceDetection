@@ -15,7 +15,7 @@
 #define IMG_CHANNELS 3
 
 #define THRESH_9x9 40
-#define THRESH_30x30 550
+#define THRESH_30x30 800
 
 #include "stbi.h"
 #include "stbi_write.h"
@@ -362,6 +362,7 @@ __global__ void detectFaces(uc *img,
     if(threadIdx.x == 0 && blockIdx.x == 0 && blockIdx.y == 0)
         printf("step: %d\n", step);
 
+    // Window origin
     int x = blockIdx.x * step;
     int y = blockIdx.y * step;
 
@@ -379,7 +380,7 @@ __global__ void detectFaces(uc *img,
 
     __syncthreads();
 
-    int cOffset = y * NUM_BLOCKS + x;
+    int blockId = blockIdx.y * NUM_BLOCKS + blockIdx.x;
     if (hv1 >= THRESH_9x9)
     {
         // SECOND HEURISTIC
@@ -397,24 +398,16 @@ __global__ void detectFaces(uc *img,
             //free(sobelImg);
 
             int hv2 = getSecondStageHeuristic(window30x30);
+
             if (hv2 <= THRESH_30x30)
             {
                 // Save result! We detected a face yayy
-                resultMatrix[cOffset] = 1;
+                resultMatrix[blockId] = 1;
             }
-            else resultMatrix[cOffset] = 0;
+            else resultMatrix[blockId] = 0;
         }
     }
-    else resultMatrix[cOffset] = 0;
-
-
-    if(threadIdx.x == 0) {
-        resultMatrix[cOffset] = 5;
-    }
-
-    /*if(threadIdx.x == 0) {
-        resultMatrix[cOffset] = 0;
-    }*/
+    else resultMatrix[blockId] = 0;
 }
 
 void CheckCudaError(char sms[], int line);
@@ -476,12 +469,15 @@ int main(int argc, char** argv)
 
   cudaDeviceSynchronize();
 
+  int winWidth = 140;
+  int winHeight = 200;
+
   dim3 dimGrid(NUM_BLOCKS, NUM_BLOCKS, 1);
   dim3 dimBlock(NUM_THREADS, 1, 1);
   printf("Executing kernel detectFaces...\n");
   detectFaces<<<dimGrid, dimBlock>>>(
          d_imageGS,
-         70, 100,
+         winWidth, winHeight,
          d_resultMatrix);
 
   cudaDeviceSynchronize();
@@ -502,6 +498,19 @@ int main(int argc, char** argv)
       }
       printf("\n");
   }
+
+  for(int i = 0; i < NUM_BLOCKS; ++i)
+  {
+      for(int j = 0; j < NUM_BLOCKS; ++j)
+      {
+          if (h_resultMatrix[i * NUM_BLOCKS + j]) {
+              printf("(%d,%d)\n", j, i);
+              fc.resultWindows.push_back(Box(j*winWidth,i*winHeight,winWidth,winHeight));
+          }
+      }
+  }
+
+  fc.saveResult();
 
   // Liberar Memoria del device
   printf("Freeing device memory...\n");
