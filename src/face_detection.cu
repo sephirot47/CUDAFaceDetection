@@ -193,8 +193,8 @@ __host__ __device__ void resize(uc *src, int srcx, int srcy, int srcw, int srch,
 {
     //Every square of size (bw,bh), will be substituted
     //by one pixel in the dst image
-    int bw = srcw / dstw;
-    int bh = srch / dsth;
+    float bw = float(srcw) / dstw;
+    float bh = float(srch) / dsth;
 
     //For each pixel in the dst
     for(int dy = dsty; dy < dsty + dsth; ++dy)
@@ -203,20 +203,21 @@ __host__ __device__ void resize(uc *src, int srcx, int srcy, int srcw, int srch,
         {
             //Offset per dst pixel. Every pixel we move in x,y in dst,
             //we move bw,bh in the src image.
-            int resizeOffset = (dy * bh) * srcTotalWidth + (dx * bw);
+            int resizeOffset = ceil((dy * bh)) * srcTotalWidth + ceil((dx * bw));
 
             //Save in its position the mean of the corresponding window pixels
             int mean = 0;
-            for(int sy = 0; sy < bh; ++sy)
+            for(int sy = 0; sy < floor(bh); ++sy)
             {
-                for(int sx = 0; sx < bw; ++sx)
+                for(int sx = 0; sx < floor(bw); ++sx)
                {
                     int srcOffset = (srcy + sy) * srcTotalWidth + (srcx + sx);
                     uc v = src[srcOffset + resizeOffset];
                     mean += v;
                 }
             }
-            mean /= bw * bh;
+
+            mean /= floor(bw * bh);
             dst[dy * dstTotalWidth + dx] = mean;
         }
     }
@@ -364,7 +365,6 @@ __global__ void detectFaces(uc *img,
     int x = blockIdx.x * step;
     int y = blockIdx.y * step;
 
-
     // FIRST HEURISTIC
     __shared__ uc window30x30[30*30];
     __shared__ uc hv1;
@@ -379,7 +379,7 @@ __global__ void detectFaces(uc *img,
 
     __syncthreads();
 
-    int cOffset = y * IMG_WIDTH + x;
+    int cOffset = y * NUM_BLOCKS + x;
     if (hv1 >= THRESH_9x9)
     {
         // SECOND HEURISTIC
@@ -407,9 +407,14 @@ __global__ void detectFaces(uc *img,
     }
     else resultMatrix[cOffset] = 0;
 
+
     if(threadIdx.x == 0) {
-        resultMatrix[cOffset] = hv1;
+        resultMatrix[cOffset] = 5;
     }
+
+    /*if(threadIdx.x == 0) {
+        resultMatrix[cOffset] = 0;
+    }*/
 }
 
 void CheckCudaError(char sms[], int line);
