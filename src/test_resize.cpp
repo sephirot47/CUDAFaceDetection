@@ -166,8 +166,10 @@ void resize(uc *src, int srcx, int srcy, int srcw, int srch, int srcTotalWidth, 
 {
     //Every square of size (bw,bh), will be substituted
     //by one pixel in the dst image
-    int bw = srcw / dstw;
-    int bh = srch / dsth;
+    float bw = float(srcw) / dstw;
+    float bh = float(srch) / dsth;
+
+    printf("%f %f\n", bw, bh);
 
     //For each pixel in the dst
     for(int dy = dsty; dy < dsty + dsth; ++dy)
@@ -176,20 +178,21 @@ void resize(uc *src, int srcx, int srcy, int srcw, int srch, int srcTotalWidth, 
         {
             //Offset per dst pixel. Every pixel we move in x,y in dst,
             //we move bw,bh in the src image.
-            int resizeOffset = (dy * bh) * srcTotalWidth + (dx * bw);
+            int resizeOffset = ceil((dy * bh)) * srcTotalWidth + ceil((dx * bw));
 
             //Save in its position the mean of the corresponding window pixels
             int mean = 0;
-            for(int sy = 0; sy < bh; ++sy)
+            for(int sy = 0; sy < floor(bh); ++sy)
             {
-                for(int sx = 0; sx < bw; ++sx)
+                for(int sx = 0; sx < floor(bw); ++sx)
                {
                     int srcOffset = (srcy + sy) * srcTotalWidth + (srcx + sx);
                     uc v = src[srcOffset + resizeOffset];
                     mean += v;
                 }
             }
-            mean /= bw * bh;
+
+            mean /= floor(bw * bh);
             dst[dy * dstTotalWidth + dx] = mean;
         }
     }
@@ -415,6 +418,19 @@ int main(int argc, char** argv)
           h_containerImageGS[y * fc.container->width() + x] = fc.container->getGrayScale(Pixel(x,y));
       }
   }
+
+  printf("Resizing original image....\n");
+  int numBytesImage = 1024 * 1024 * sizeof(uc);
+  uc *h_imageGS = (uc*) malloc(numBytesImage);
+  resize(h_containerImageGS,
+         0, 0, fc.container->width(), fc.container->height(), fc.container->width(),
+         h_imageGS,
+         0, 0, 1024, 1024, 1024
+         );
+  saveImage(h_imageGS,0,0,1024,1024,1024,"test.bmp");
+  //
+
+  exit(0);
 
   const int thresh1 = 40; //higher = more restrictive
   const float histoThresh = 99.9f;//3.0f; //higher = less restrictive (0.0f->3.8f)

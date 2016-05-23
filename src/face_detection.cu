@@ -11,7 +11,8 @@
 #define IMG_WIDTH 1024
 #define IMG_HEIGHT 1024
 #define NUM_THREADS 1024
-#define NUM_BLOCKS 254
+#define NUM_BLOCKS 64
+#define IMG_CHANNELS 3
 
 #define THRESH_9x9 40
 #define THRESH_30x30 550
@@ -64,7 +65,7 @@ public:
     FILE *file = fopen(filename, "r");
     if (file != NULL)
     {
-        data = stbi_load_from_file(file, &_width, &_height, &comp, 4); // rgba
+        data = stbi_load_from_file(file, &_width, &_height, &comp, IMG_CHANNELS); // rgba
         fclose (file);
         printf("%s read successfully\n", filename);
     }
@@ -281,7 +282,11 @@ __device__ uc getFirstStageHeuristic(uc *img) {
 }
 
 // Find edges in horizontal direction
-__device__ void sobelEdgeDetection(uc *img, int ox, int oy, int winWidth, int winHeight, int imgWidth, uc *sobelImg)
+__device__ void sobelEdgeDetection(uc *img,
+                                   int ox, int oy,
+                                   int winWidth, int winHeight,
+                                   int imgWidth,
+                                   uc *sobelImg)
 {
     uc threshold = 24;
 
@@ -352,9 +357,10 @@ __global__ void detectFaces(uc *img,
                             int winWidth, int winHeight,
                             uc  *resultMatrix)
 {
-    if(threadIdx.x != 0) return;
-
     int step = (IMG_WIDTH - winWidth) / NUM_BLOCKS;
+    if(threadIdx.x == 0 && blockIdx.x == 0 && blockIdx.y == 0)
+        printf("step: %d\n", step);
+
     int x = blockIdx.x * step;
     int y = blockIdx.y * step;
 
@@ -400,6 +406,10 @@ __global__ void detectFaces(uc *img,
         }
     }
     else resultMatrix[cOffset] = 0;
+
+    if(threadIdx.x == 0) {
+        resultMatrix[cOffset] = hv1;
+    }
 }
 
 void CheckCudaError(char sms[], int line);
@@ -435,6 +445,7 @@ int main(int argc, char** argv)
          h_imageGS,
          0, 0, IMG_WIDTH, IMG_HEIGHT, IMG_WIDTH
          );
+  saveImage(h_imageGS,0,0,IMG_WIDTH,IMG_HEIGHT,IMG_WIDTH,"initialResizedImage.bmp");
   //
 
 
@@ -475,11 +486,6 @@ int main(int argc, char** argv)
   cudaMemcpy(h_resultMatrix, d_resultMatrix, numBytesResultMatrix, cudaMemcpyDeviceToHost);
   CheckCudaError((char *) "Retrieving resultMatrix from device to host", __LINE__);
 
-  // Liberar Memoria del device
-  printf("Freeing device memory...\n");
-  cudaFree(d_resultMatrix);
-  cudaFree(d_imageGS);
-
   cudaDeviceSynchronize();
 
   //TODO: treat result
@@ -491,6 +497,14 @@ int main(int argc, char** argv)
       }
       printf("\n");
   }
+
+  // Liberar Memoria del device
+  printf("Freeing device memory...\n");
+  cudaFree(d_resultMatrix);
+  cudaFree(d_imageGS);
+
+  printf("FINISHED!");
+
 }
 
 
