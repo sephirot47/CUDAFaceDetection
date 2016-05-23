@@ -14,8 +14,9 @@
 #define NUM_BLOCKS 64
 #define IMG_CHANNELS 3
 
-#define THRESH_9x9 40
-#define THRESH_30x30 800
+//Optimal values 40, 550
+#define THRESH_9x9 40     //Bigger = more restrictive
+#define THRESH_30x30 750  //Bigger = less restrictive
 
 #include "stbi.h"
 #include "stbi_write.h"
@@ -469,8 +470,8 @@ int main(int argc, char** argv)
 
   cudaDeviceSynchronize();
 
-  int winWidth = 140;
-  int winHeight = 200;
+  int winWidth = 70;
+  int winHeight = 100;
 
   dim3 dimGrid(NUM_BLOCKS, NUM_BLOCKS, 1);
   dim3 dimBlock(NUM_THREADS, 1, 1);
@@ -499,13 +500,19 @@ int main(int argc, char** argv)
       printf("\n");
   }
 
+  float widthRatio =  float(fc.image->width())/IMG_WIDTH;
+  float heightRatio =  float(fc.image->height())/IMG_HEIGHT;
+  int step = (IMG_WIDTH - winWidth) / NUM_BLOCKS;
   for(int i = 0; i < NUM_BLOCKS; ++i)
   {
       for(int j = 0; j < NUM_BLOCKS; ++j)
       {
           if (h_resultMatrix[i * NUM_BLOCKS + j]) {
               printf("(%d,%d)\n", j, i);
-              fc.resultWindows.push_back(Box(j*winWidth,i*winHeight,winWidth,winHeight));
+              fc.resultWindows.push_back(Box(int(j * step * widthRatio),
+                                             int(i * step * heightRatio),
+                                             int(winWidth * widthRatio),
+                                             int(winHeight * heightRatio)));
           }
       }
   }
