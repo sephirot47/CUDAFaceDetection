@@ -246,15 +246,17 @@ __device__ float getHistogram(uc *img, int ox, int oy, int width, int height, in
 
 __device__ void toBlackAndWhite(uc *img, int ox, int oy, int width, int height, int imgWidth)
 {
-    for(int y = oy; y < oy + height; ++y)
+    int size = width * height;
+    for(int i = threadIdx.x; i < size; i += NUM_THREADS)
     {
-        for(int x = ox; x < ox + width; ++x)
-        {
-            int offset = y * imgWidth + x;
-            uc v = img[offset];
-            img[offset] = v > 200 ? 255 : 0;
-        }
+        int wx = i % width;
+        int wy = i / width;
+        int offset = (oy + wy) * width + (ox + wx);
+
+        uc v = img[offset];
+        img[i] = v > 200 ? 255 : 0;
     }
+    __syncthreads();
 }
 
 // Increase contrast
@@ -385,7 +387,6 @@ __global__ void detectFaces(uc *img,
     if (hv1 >= THRESH_9x9)
     {
         // SECOND HEURISTIC
-        //uc *sobelImg = (uc*) malloc(winWidth * winHeight * sizeof(uc));
         __shared__ uc sobelImg[200*200];
         sobelEdgeDetection(img, x, y, winWidth, winHeight, IMG_WIDTH, sobelImg);
 
@@ -396,13 +397,10 @@ __global__ void detectFaces(uc *img,
                    0, 0, 30, 30, 30);
             toBlackAndWhite(window30x30, 0, 0, 30, 30, 30);
 
-            //free(sobelImg);
-
             int hv2 = getSecondStageHeuristic(window30x30);
 
             if (hv2 <= THRESH_30x30)
             {
-                // Save result! We detected a face yayy
                 resultMatrix[blockId] = 1;
             }
             else resultMatrix[blockId] = 0;
@@ -490,18 +488,6 @@ int main(int argc, char** argv)
 
   cudaDeviceSynchronize();
 
-  //TODO: treat result
-  /*
-  for(int i = 0; i < NUM_BLOCKS; ++i)
-  {
-      for(int j = 0; j < NUM_BLOCKS; ++j)
-      {
-          printf("%d ", h_resultMatrix[i * NUM_BLOCKS + j]);
-      }
-      printf("\n");
-  }
-  */
-
   float widthRatio =  float(fc.image->width())/IMG_WIDTH;
   float heightRatio =  float(fc.image->height())/IMG_HEIGHT;
   int step = (IMG_WIDTH - winWidth) / NUM_BLOCKS;
@@ -527,7 +513,6 @@ int main(int argc, char** argv)
   cudaFree(d_imageGS);
 
   printf("FINISHED!");
-
 }
 
 
