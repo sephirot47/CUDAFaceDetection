@@ -8,6 +8,14 @@
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 
+#define IMG_WIDTH 1024
+#define IMG_HEIGHT 1024
+#define IMG_CHANNELS 3
+
+//Optimal values 40, 550
+#define THRESH_9x9 40     //Bigger = more restrictive
+#define THRESH_30x30 700  //Bigger = less restrictive
+
 #include "stbi.h"
 #include "stbi_write.h"
 
@@ -47,7 +55,7 @@ public:
     this->filename = filename;
     FILE *file = fopen(filename, "r");
     if (file != NULL) {
-        data = stbi_load_from_file(file, &_width, &_height, &comp, 3); // rgb
+        data = stbi_load_from_file(file, &_width, &_height, &comp, IMG_CHANNELS); // rgb
         fclose (file);
         printf("%s read successfully\n", filename);
     }
@@ -168,8 +176,6 @@ void resize(uc *src, int srcx, int srcy, int srcw, int srch, int srcTotalWidth, 
     //by one pixel in the dst image
     float bw = float(srcw) / dstw;
     float bh = float(srch) / dsth;
-
-    printf("%f %f\n", bw, bh);
 
     //For each pixel in the dst
     for(int dy = dsty; dy < dsty + dsth; ++dy)
@@ -420,76 +426,46 @@ int main(int argc, char** argv)
   }
 
   printf("Resizing original image....\n");
-  int numBytesImage = 1024 * 1024 * sizeof(uc);
+  int numBytesImage = IMG_WIDTH * IMG_WIDTH * sizeof(uc);
   uc *h_imageGS = (uc*) malloc(numBytesImage);
   resize(h_containerImageGS,
          0, 0, fc.container->width(), fc.container->height(), fc.container->width(),
          h_imageGS,
-         0, 0, 1024, 1024, 1024
+         0, 0, IMG_WIDTH, IMG_HEIGHT, IMG_WIDTH
          );
-  saveImage(h_imageGS,0,0,1024,1024,1024,"test.bmp");
+  saveImage(h_imageGS,0,0,IMG_WIDTH,IMG_HEIGHT,IMG_WIDTH,"test.bmp");
   //
-
-  exit(0);
 
   const int thresh1 = 40; //higher = more restrictive
   const float histoThresh = 99.9f;//3.0f; //higher = less restrictive (0.0f->3.8f)
   const int thresh2 = 550; //higher = less restrictive
-  int step = 5;
-  //int sizes[] = {30 * 2, 30*3, 30 * 4, 30 * 5, 30 * 6};
-  int sizes[] = {
-                  30 * 2
-                 ,30 * 3
-                 ,30 * 4
-                 ,30 * 5
-                 ,30 * 6
-                 //,30 * 7
-                 //,30 * 8
-                 //,30 * 10
-                 //,30 * 14
-                };
 
-  for(int i = 0; i < sizeof(sizes)/sizeof(int); ++i)
+  //Original 100,100
+  int winWidth = 34;
+  int winHeight = 51;
+  float widthRatio = float(fc.container->width()) / IMG_WIDTH;
+  float heightRatio = float(fc.container->height()) / IMG_HEIGHT;
+  int step = 15;
+  for (int y = 0; y < IMG_HEIGHT - winHeight; y += step)
   {
-  //for(int j = 0; j < sizeof(sizes)/sizeof(int); ++j)
-  {
-  int winWidth = sizes[i];
-  int winHeight = sizes[i];
-  printf("Window: (%d,%d)\n", winWidth, winHeight);
-  for (int y = 0; y < fc.container->height() - winHeight; y += step)
-  {
-      for (int x = 0; x < fc.container->width() - winWidth; x += step)
+      for (int x = 0; x < IMG_WIDTH - winWidth; x += step)
       {
           string filename = "output/win_" + to_string(x) + "_" + to_string(y);
 
           // FIRST STAGE
           // resize window to 9x9
           uc window9x9[9*9];
-          resize(h_containerImageGS, x, y, winWidth, winHeight, fc.container->width(),
+          resize(h_imageGS, x, y, winWidth, winHeight, IMG_WIDTH,
                  window9x9, 0, 0, 9, 9, 9);
           histogramEqualization(window9x9, 0, 0, 9, 9, 9);
 
           uc hv1 = getFirstStageHeuristic(window9x9);
-          if (hv1 >= thresh1)
+          if (hv1 >= THRESH_9x9)
           {
-              // save first stage candidate windows
-              //printf("Saving first stage candidate H1(%d,%d): %d\n", x, y, hv1);
-              //saveImage(window9x9, 0, 0, 9, 9, 9, (filename + ".9x9").c_str());
-
-              // save window histograms
-              float histogram[256];
-              float maxfreq = getHistogram(h_containerImageGS,
-                                           x, y, winWidth, winHeight,
-                                           fc.container->width(), histogram);
-              float hh = histogramHeuristic(histogram, maxfreq);
-              if(hh <= histoThresh)
-              {
-                  /*plotHistogram(histogram, maxv, (filename + ".hist").c_str());*/
-
-                  // SECOND STAGE
+              // SECOND STAGE
                   // apply sobel edge detection
                   uc *sobelImg = (uc*) malloc(winWidth * winHeight * sizeof(uc));
-                  sobelEdgeDetection(h_containerImageGS, x, y, winWidth, winHeight, fc.container->width(), sobelImg);
+                  sobelEdgeDetection(h_imageGS, x, y, winWidth, winHeight, IMG_WIDTH, sobelImg);
 
                   // resize window to 30x30
                   uc window30x30[30*30];
@@ -499,24 +475,16 @@ int main(int argc, char** argv)
 
                   free(sobelImg);
                   int hv2 = getSecondStageHeuristic(window30x30);
-                  if (hv2 <= thresh2) {
-                      // save window histograms
-                      //float histogram[256];
-                      //float maxv = getHistogram(h_containerImageGS, x, y, winWidth, winHeight, fc.container->width(), histogram);
-                      //plotHistogram(histogram, maxv, (filename + ".hist").c_str());
-
-                      // save second stage candidate windows
-                      printf("Saving second stage candidate H2(%d,%d): %d\n", x, y, hv2);
-                      saveImage(window30x30, 0, 0, 30, 30, 30, (filename + ".30x30" + ".h" + to_string(hv2)).c_str());
-                      //saveImage(h_containerImageGS, x, y, winWidth, winHeight, fc.container->width(), (filename + ".bmp").c_str());
-
-                      fc.resultWindows.push_back( Box(x, y, winWidth, winHeight));
+                  if (hv2 <= THRESH_30x30)
+                  {
+                      //saveImage(window30x30, 0, 0, 30, 30, 30, filename.c_str());
+                      fc.resultWindows.push_back( Box(int(x * widthRatio),
+                                                      int(y * heightRatio),
+                                                      int(winWidth * widthRatio),
+                                                      int(winHeight * heightRatio)));
                   }
-              }
-          }
+           }
       }
-  }
-  }
   }
 
   fc.saveResult();

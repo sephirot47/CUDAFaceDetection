@@ -16,7 +16,7 @@
 
 //Optimal values 40, 550
 #define THRESH_9x9 40     //Bigger = more restrictive
-#define THRESH_30x30 750  //Bigger = less restrictive
+#define THRESH_30x30 700  //Bigger = less restrictive
 
 #include "stbi.h"
 #include "stbi_write.h"
@@ -444,7 +444,7 @@ int main(int argc, char** argv)
          h_imageGS,
          0, 0, IMG_WIDTH, IMG_HEIGHT, IMG_WIDTH
          );
-  saveImage(h_imageGS,0,0,IMG_WIDTH,IMG_HEIGHT,IMG_WIDTH,"initialResizedImage.bmp");
+  //saveImage(h_imageGS,0,0,IMG_WIDTH,IMG_HEIGHT,IMG_WIDTH,"initialResizedImage.bmp");
   //
 
 
@@ -470,8 +470,8 @@ int main(int argc, char** argv)
 
   cudaDeviceSynchronize();
 
-  int winWidth = 70;
-  int winHeight = 100;
+  int winWidth = 34;
+  int winHeight = 51;
 
   dim3 dimGrid(NUM_BLOCKS, NUM_BLOCKS, 1);
   dim3 dimBlock(NUM_THREADS, 1, 1);
@@ -491,6 +491,7 @@ int main(int argc, char** argv)
   cudaDeviceSynchronize();
 
   //TODO: treat result
+  /*
   for(int i = 0; i < NUM_BLOCKS; ++i)
   {
       for(int j = 0; j < NUM_BLOCKS; ++j)
@@ -499,6 +500,7 @@ int main(int argc, char** argv)
       }
       printf("\n");
   }
+  */
 
   float widthRatio =  float(fc.image->width())/IMG_WIDTH;
   float heightRatio =  float(fc.image->height())/IMG_HEIGHT;
