@@ -207,6 +207,13 @@ __host__ __device__ void resize(uc *src, int srcx, int srcy, int srcw, int srch,
             int resizeOffset = ceil((dy * bh)) * srcTotalWidth + ceil((dx * bw));
 
             //Save in its position the mean of the corresponding window pixels
+            uc mean = getWindowMeanGS(src,
+                                      srcx + dx*bw, srcy + dy*bh, //x, y
+                                      floor(bh), floor(bw),       //width height
+                                      srcTotalWidth               //totalWidth
+                                      );
+
+            /*
             int mean = 0;
             for(int sy = 0; sy < floor(bh); ++sy)
             {
@@ -217,8 +224,9 @@ __host__ __device__ void resize(uc *src, int srcx, int srcy, int srcw, int srch,
                     mean += v;
                 }
             }
-
             mean /= floor(bw * bh);
+            */
+
             dst[dy * dstTotalWidth + dx] = mean;
         }
     }
@@ -246,13 +254,17 @@ __device__ float getHistogram(uc *img, int ox, int oy, int width, int height, in
 
 __device__ void toBlackAndWhite(uc *img, int ox, int oy, int width, int height, int imgWidth)
 {
+    /*
+     for(int y = oy; y < oy + height; ++y) {
+         for(int x = ox; x < ox + width; ++x) {
+             int offset = y * imgWidth + x;
+    */
     int size = width * height;
     for(int i = threadIdx.x; i < size; i += NUM_THREADS)
     {
         int wx = i % width;
         int wy = i / width;
         int offset = (oy + wy) * width + (ox + wx);
-
         uc v = img[offset];
         img[i] = v > 200 ? 255 : 0;
     }
@@ -267,17 +279,25 @@ __device__ void histogramEqualization(uc *img, int ox, int oy, int width, int he
 
     __shared__ float accumulatedProbs[256];
     accumulatedProbs[0] = histogram[0];
-    for(int i = 1; i < 256; ++i) accumulatedProbs[i] = accumulatedProbs[i-1] + histogram[i];
+    //for(int i = 1; i < 256; ++i) accumulatedProbs[i] = accumulatedProbs[i-1] + histogram[i];
+    if(threadIdx.x >= 1 && threadIdx.x < 256)
+        accumulatedProbs[threadIdx.x] = accumulatedProbs[threadIdx.x-1] + histogram[threadIdx.x];
 
-    for(int y = oy; y < oy + height; ++y)
-    {
-        for(int x = ox; x < ox + width; ++x)
-        {
+    /*
+    for(int y = oy; y < oy + height; ++y) {
+        for(int x = ox; x < ox + width; ++x) {
             int offset = y * imgWidth + x;
-            uc v = img[offset];
-            img[offset] = floor(255 * accumulatedProbs[v]);
-        }
+   */
+    int size = width * height;
+    for(int i = threadIdx.x; i < size; i += NUM_THREADS)
+    {
+        int wx = i % width;
+        int wy = i / width;
+        int offset = (oy + wy) * width + (ox + wx);
+        uc v = img[offset];
+        img[offset] = floor(255 * accumulatedProbs[v]);
     }
+    __syncthreads();
 }
 
 __device__ uc getFirstStageHeuristic(uc *img) {
@@ -377,10 +397,13 @@ __global__ void detectFaces(uc *img,
                x, y, winWidth, winHeight, IMG_WIDTH,
                window30x30,
                0, 0, 9, 9, 9);
-        histogramEqualization(window30x30, 0, 0, 9, 9, 9);
-        hv1 = getFirstStageHeuristic(window30x30);
     }
 
+    histogramEqualization(window30x30, 0, 0, 9, 9, 9);
+
+    if(threadIdx.x == 0) {
+        hv1 = getFirstStageHeuristic(window30x30);
+    }
     __syncthreads();
 
     int blockId = blockIdx.y * NUM_BLOCKS + blockIdx.x;
@@ -395,8 +418,11 @@ __global__ void detectFaces(uc *img,
                    0, 0, winWidth, winHeight, winWidth,
                    window30x30,
                    0, 0, 30, 30, 30);
-            toBlackAndWhite(window30x30, 0, 0, 30, 30, 30);
+        }
 
+        toBlackAndWhite(window30x30, 0, 0, 30, 30, 30);
+
+        if(threadIdx.x == 0) {
             int hv2 = getSecondStageHeuristic(window30x30);
 
             if (hv2 <= THRESH_30x30)
