@@ -304,10 +304,13 @@ __device__ void histogramEqualization(uc *img,
                                       int width, int height, int imgWidth)
 {
     __shared__ float histogram[256];
-    getHistogram(img, ox, oy, width, height, imgWidth, histogram);
-
     __shared__ float accumulatedProbs[256];
-    accumulatedProbs[0] = histogram[0];
+    if(threadIdx.x == 0)
+    {
+        getHistogram(img, ox, oy, width, height, imgWidth, histogram);
+        accumulatedProbs[0] = histogram[0];
+    }
+    __syncthreads();
 
     //*
     for(int i = 1; i < 256; ++i) accumulatedProbs[i] = accumulatedProbs[i-1] + histogram[i];
@@ -323,7 +326,7 @@ __device__ void histogramEqualization(uc *img,
         int wx = i % width;
         int wy = i / width;
         int offset = (oy + wy) * width + (ox + wx);
-    */
+    //*/
         uc v = img[offset];
         img[offset] = floor(255 * accumulatedProbs[v]);
     } }
