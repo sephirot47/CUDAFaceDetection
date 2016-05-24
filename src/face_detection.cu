@@ -188,6 +188,21 @@ void saveImage(uc *img, int x, int y, int width, int height, int imgWidth, const
     free(aux);
 }
 
+__host__ __device__ uc getWindowMeanGS(uc *img, int ox, int oy, int winWidth, int winHeight, int imgWidth) {
+    int sum = 0;
+    for(int y = oy; y < oy + winHeight; ++y)
+    {
+        for(int x = ox; x < ox + winWidth; ++x)
+        {
+            int offset = y * imgWidth + x;
+            sum += img[offset];
+        }
+    }
+
+    return uc(sum / (winWidth * winHeight));
+}
+
+
 // Resize always to a smaller size -> downsample
 __host__ __device__ void resize(uc *src, int srcx, int srcy, int srcw, int srch, int srcTotalWidth, //x,y,width,height
             uc *dst, int dstx, int dsty, int dstw, int dsth, int dstTotalWidth) //x,y,width,height
@@ -209,7 +224,7 @@ __host__ __device__ void resize(uc *src, int srcx, int srcy, int srcw, int srch,
             //Save in its position the mean of the corresponding window pixels
             uc mean = getWindowMeanGS(src,
                                       srcx + dx*bw, srcy + dy*bh, //x, y
-                                      floor(bh), floor(bw),       //width height
+                                      floor(bw), floor(bh),       //width height
                                       srcTotalWidth               //totalWidth
                                       );
 
@@ -343,20 +358,6 @@ __device__ void sobelEdgeDetection(uc *img,
                 sobelImg[winOffset] = 255;
         }
     }
-}
-
-__device__ uc getWindowMeanGS(uc *img, int ox, int oy, int winWidth, int winHeight, int imgWidth) {
-    int sum = 0;
-    for(int y = oy; y < oy + winHeight; ++y)
-    {
-        for(int x = ox; x < ox + winWidth; ++x)
-        {
-            int offset = y * imgWidth + x;
-            sum += img[offset];
-        }
-    }
-
-    return uc(sum / (winWidth * winHeight));
 }
 
 __device__ int getSecondStageHeuristic(uc *img) {
