@@ -230,7 +230,7 @@ __device__ void resize(uc *src, int srcx, int srcy, int srcw, int srch, int srcT
 {
     float bw = float(srcw) / dstw;
     float bh = float(srch) / dsth;
-    //*
+    /*
     for(int dy = dsty; dy < dsty + dsth; ++dy)
     {
         for(int dx = dstx; dx < dstx + dstw; ++dx)
@@ -241,7 +241,7 @@ __device__ void resize(uc *src, int srcx, int srcy, int srcw, int srch, int srcT
         {
             int dx = dstx + (i % srcw);
             int dy = dsty + (i / srcw);
-    */
+    //*/
         //Save in its position the mean of the corresponding window pixels
         uc mean = getWindowMeanGS(src,
                                   srcx + dx*bw, srcy + dy*bh, //x, y

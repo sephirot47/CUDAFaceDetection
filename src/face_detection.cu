@@ -16,7 +16,7 @@
 
 //Optimal values 40, 550
 #define THRESH_9x9 40     //Bigger = more restrictive
-#define THRESH_30x30 700  //Bigger = less restrictive
+#define THRESH_30x30 550  //Bigger = less restrictive
 
 #include "stbi.h"
 #include "stbi_write.h"
@@ -272,14 +272,14 @@ __device__ float getHistogram(uc *img, int ox, int oy, int width, int height, in
 
 __device__ void toBlackAndWhite(uc *img, int ox, int oy, int width, int height, int imgWidth)
 {
-    for(int y = oy; y < oy + height; ++y)
+    int size = width * height;
+    for(int i = threadIdx.x; i < size; i += NUM_THREADS)
     {
-        for(int x = ox; x < ox + width; ++x)
-        {
-            int offset = y * imgWidth + x;
-            uc v = img[offset];
-            img[offset] = v > 200 ? 255 : 0;
-        }
+        int wx = i % width;
+        int wy = i / width;
+        int offset = (oy + wy) * width + (ox + wx);
+        uc v = img[offset];
+        img[offset] = v > 200 ? 255 : 0;
     }
 }
 
@@ -371,13 +371,20 @@ __global__ void detectFaces(uc *img,
                             int winWidth, int winHeight,
                             uc  *resultMatrix)
 {
-    int step = (IMG_WIDTH - winWidth) / NUM_BLOCKS;
+    int step = (IMG_WIDTH - winWidth) / NUM_BLOCKS + 1;
     if(threadIdx.x == 0 && blockIdx.x == 0 && blockIdx.y == 0)
         printf("step: %d\n", step);
 
     // Window origin
     int x = blockIdx.x * step;
     int y = blockIdx.y * step;
+    int blockId = blockIdx.y * NUM_BLOCKS + blockIdx.x;
+
+    if(x + winWidth > IMG_WIDTH || y + winHeight > IMG_HEIGHT)
+    {
+        resultMatrix[blockId] = 0;
+        return;
+    }
 
     // FIRST HEURISTIC
     __shared__ uc window30x30[30*30];
@@ -394,7 +401,6 @@ __global__ void detectFaces(uc *img,
     }
     __syncthreads();
 
-    int blockId = blockIdx.y * NUM_BLOCKS + blockIdx.x;
     if (hv1 >= THRESH_9x9)
     {
         // SECOND HEURISTIC
@@ -409,11 +415,10 @@ __global__ void detectFaces(uc *img,
                0, 0, 30, 30, 30);
         __syncthreads();
 
+        toBlackAndWhite(window30x30, 0, 0, 30, 30, 30);
+        __syncthreads();
+
         if(threadIdx.x == 0) {
-            toBlackAndWhite(window30x30, 0, 0, 30, 30, 30);
-
-            //free(sobelImg);
-
             int hv2 = getSecondStageHeuristic(window30x30);
 
             if (hv2 <= THRESH_30x30)
@@ -487,8 +492,8 @@ int main(int argc, char** argv)
 
   cudaDeviceSynchronize();
 
-  int winWidth = 34;
-  int winHeight = 51;
+  int winWidth = 40;
+  int winHeight = 60;
 
   dim3 dimGrid(NUM_BLOCKS, NUM_BLOCKS, 1);
   dim3 dimBlock(NUM_THREADS, 1, 1);
@@ -507,26 +512,15 @@ int main(int argc, char** argv)
 
   cudaDeviceSynchronize();
 
-  //TODO: treat result
-  /*
-  for(int i = 0; i < NUM_BLOCKS; ++i)
-  {
-      for(int j = 0; j < NUM_BLOCKS; ++j)
-      {
-          printf("%d ", h_resultMatrix[i * NUM_BLOCKS + j]);
-      }
-      printf("\n");
-  }
-  */
-
+  // Result to image
   float widthRatio =  float(fc.image->width())/IMG_WIDTH;
   float heightRatio =  float(fc.image->height())/IMG_HEIGHT;
-  int step = (IMG_WIDTH - winWidth) / NUM_BLOCKS;
+  int step = (IMG_WIDTH - winWidth) / NUM_BLOCKS + 1;
   for(int i = 0; i < NUM_BLOCKS; ++i)
   {
       for(int j = 0; j < NUM_BLOCKS; ++j)
       {
-          if (h_resultMatrix[i * NUM_BLOCKS + j]) {
+          if (h_resultMatrix[i * NUM_BLOCKS + j] == 1) {
               printf("(%d,%d)\n", j, i);
               fc.resultWindows.push_back(Box(int(j * step * widthRatio),
                                              int(i * step * heightRatio),
@@ -535,8 +529,8 @@ int main(int argc, char** argv)
           }
       }
   }
-
   fc.saveResult();
+  // ////////////////////////
 
   // Liberar Memoria del device
   printf("Freeing device memory...\n");
