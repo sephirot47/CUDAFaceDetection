@@ -161,7 +161,6 @@ public:
       }
 
       stbi_write_bmp("output/result.bmp", image->width(), image->height(), 3, result);
-      //saveImage(result, 0, 0, image->width(), image->height(), image->width()*3, );
   }
 
 private:
@@ -218,8 +217,8 @@ void resize_seq(uc *src, int srcx, int srcy, int srcw, int srch, int srcTotalWid
             //Save in its position the mean of the corresponding window pixels
             uc mean = getWindowMeanGS(src,
                                       srcx + ceil(dx*bw), srcy + ceil(dy*bh), //x, y
-                                      floor(bw), floor(bh),       //width height
-                                      srcTotalWidth               //totalWidth
+                                      floor(bw), floor(bh),                   //width height
+                                      srcTotalWidth                           //totalWidth
                                       );
 
             dst[dy * dstTotalWidth + dx] = mean;
@@ -255,8 +254,7 @@ __device__ void getHistogram(uc *img, int ox, int oy, int width, int height, int
 
   float npixels = width * height;
   float unitProb = 1.0f/npixels;
-  
-  //for(int i = 0; i < 256; ++i) histogram[i] = 0;
+
   if(threadIdx.x < 256) histogram[threadIdx.x] = 0;
  
   int size = width * height;
@@ -265,8 +263,8 @@ __device__ void getHistogram(uc *img, int ox, int oy, int width, int height, int
 	int wx = i % width;
  	int wy = i / width;
 	int offset = (oy + wy) * imgWidth + (ox + wx);
-        uc v = img[offset];
-        atomicAdd(&histogram[v], unitProb);
+    uc v = img[offset];
+    atomicAdd(&histogram[v], unitProb);
   }
 }
 
@@ -327,7 +325,6 @@ __device__ void sobelEdgeDetection(uc *img,
 {
     uc threshold = 24;
 
-    //unsigned int i = ox + threadIdx.x + oy * imgWidth;
     int size = winWidth * winHeight;
     for (int i = threadIdx.x; i < size; i+=NUM_THREADS)
     {
@@ -415,7 +412,6 @@ __global__ void detectFaces(uc *img,
     if (hv1 >= THRESH_9x9)
     {
         // SECOND HEURISTIC
-        //uc *sobelImg = (uc*) malloc(winWidth * winHeight * sizeof(uc));
         __shared__ uc sobelImg[200*200];
         sobelEdgeDetection(img, x, y, winWidth, winHeight, IMG_WIDTH, sobelImg);
         __syncthreads();
@@ -443,7 +439,14 @@ __global__ void detectFaces(uc *img,
     else resultMatrix[blockId] = 0;
 }
 
-void CheckCudaError(char sms[], int line);
+void CheckCudaError(char sms[], int line) {
+  cudaError_t error;
+  error = cudaGetLastError();
+  if (error) {
+    printf("(ERROR) %s - %s in %s at line %d\n", sms, cudaGetErrorString(error), __FILE__, line);
+    exit(EXIT_FAILURE);
+  }
+}
 
 int main(int argc, char** argv)
 {
@@ -477,89 +480,155 @@ int main(int argc, char** argv)
          h_imageGS,
          0, 0, IMG_WIDTH, IMG_HEIGHT, IMG_WIDTH
          );
-  saveImage(h_imageGS,0,0,IMG_WIDTH,IMG_HEIGHT,IMG_WIDTH,"initialResizedImage.bmp");
   //
 
+  int deviceCount;
+  cudaGetDeviceCount(&deviceCount);
+  if (deviceCount < 4) { printf("Not enough GPUs\n"); exit(-1); }
+
+  printf("Getting memory in the host to allocate resultMatrix...\n");
+  int numBytesResultMatrix = NUM_BLOCKS * NUM_BLOCKS * sizeof(uc);
+  uc *h_resultMatrix_0 = (uc*) malloc(numBytesResultMatrix);
+  uc *h_resultMatrix_1 = (uc*) malloc(numBytesResultMatrix);
+  uc *h_resultMatrix_2 = (uc*) malloc(numBytesResultMatrix);
+  uc *h_resultMatrix_3 = (uc*) malloc(numBytesResultMatrix);
 
   //Obtiene Memoria [pinned] en el host
   //cudaMallocHost((float**)&h_x, numBytes);
   //cudaMallocHost((float**)&h_y, numBytes);
   //cudaMallocHost((float**)&H_y, numBytes);   // Solo se usa para comprobar el resultado
 
-  printf("Getting memory in the host to allocate resultMatrix...\n");
-  int numBytesResultMatrix = NUM_BLOCKS * NUM_BLOCKS * sizeof(uc);
-  uc *h_resultMatrix = (uc*) malloc(numBytesResultMatrix);
 
-  printf("Getting memory in the device...\n");
-  uc *d_imageGS, *d_resultMatrix;
-  cudaMalloc((uc**)&d_imageGS, numBytesImage);
-  cudaMalloc((uc**)&d_resultMatrix, numBytesResultMatrix); //result diff matrix
-  CheckCudaError((char *) "Get Device memory", __LINE__);
+  // Get device memory
 
-  printf("Copying matrices from host to device...\n");
-  cudaMemcpy(d_resultMatrix, h_resultMatrix, numBytesResultMatrix, cudaMemcpyHostToDevice);
-  cudaMemcpy(d_imageGS, h_imageGS, numBytesImage, cudaMemcpyHostToDevice);
-  CheckCudaError((char *) "Copy data from host to device", __LINE__);
+  uc *d_imageGS_0, *d_resultMatrix_0;
+  uc *d_imageGS_1, *d_resultMatrix_1;
+  uc *d_imageGS_2, *d_resultMatrix_2;
+  uc *d_imageGS_3, *d_resultMatrix_3;
 
-  cudaDeviceSynchronize();
+  printf("Getting memory in device 0...\n");
+  cudaSetDevice(0);
+  cudaMalloc((uc**)&d_imageGS_0, numBytesImage);
+  cudaMalloc((uc**)&d_resultMatrix_0, numBytesResultMatrix);
+  CheckCudaError((char *) "Get Device 0 memory", __LINE__);
 
-  int winWidth = 40;
-  int winHeight = 60;
+  printf("Getting memory in device 1...\n");
+  cudaSetDevice(1);
+  cudaMalloc((uc**)&d_imageGS_1, numBytesImage);
+  cudaMalloc((uc**)&d_resultMatrix_1, numBytesResultMatrix);
+  CheckCudaError((char *) "Get Device 1 memory", __LINE__);
+
+  printf("Getting memory in device 2...\n");
+  cudaSetDevice(2);
+  cudaMalloc((uc**)&d_imageGS_2, numBytesImage);
+  cudaMalloc((uc**)&d_resultMatrix_2, numBytesResultMatrix);
+  CheckCudaError((char *) "Get Device 2 memory", __LINE__);
+
+  printf("Getting memory in device 3...\n");
+  cudaSetDevice(3);
+  cudaMalloc((uc**)&d_imageGS_3, numBytesImage);
+  cudaMalloc((uc**)&d_resultMatrix_3, numBytesResultMatrix);
+  CheckCudaError((char *) "Get Device 3 memory", __LINE__);
+
 
   dim3 dimGrid(NUM_BLOCKS, NUM_BLOCKS, 1);
   dim3 dimBlock(NUM_THREADS, 1, 1);
-  printf("Executing kernel detectFaces...\n");
-  detectFaces<<<dimGrid, dimBlock>>>(
-         d_imageGS,
-         winWidth, winHeight,
-         d_resultMatrix);
+  int winSizes[] = {40, 80, 100, 120};
 
-  cudaDeviceSynchronize();
-  CheckCudaError((char *) "Invocar Kernel", __LINE__);
+  // Copy data from host to device, execute kernel, copy data from device to host
 
-  printf("Retrieving resultMatrix from device to host...\n");
-  cudaMemcpy(h_resultMatrix, d_resultMatrix, numBytesResultMatrix, cudaMemcpyDeviceToHost);
-  CheckCudaError((char *) "Retrieving resultMatrix from device to host", __LINE__);
+  cudaSetDevice(0);
+  printf("Copying matrices from host to device 0...\n");
+  cudaMemcpyAsync(d_imageGS_0, h_imageGS, numBytesImage, cudaMemcpyHostToDevice);
+  CheckCudaError((char *) "Copy data from host to device 0", __LINE__);
+  printf("Executing kernel detectFaces on device 0...\n");
+  detectFaces<<<dimGrid, dimBlock>>>(d_imageGS_0, winSizes[0], winSizes[0] * 1.5, d_resultMatrix_0);
+  CheckCudaError((char *) "Invoke Kernel 0", __LINE__);
+  printf("Retrieving resultMatrix from device 0 to host...\n");
+  cudaMemcpy(h_resultMatrix_0, d_resultMatrix_0, numBytesResultMatrix, cudaMemcpyDeviceToHost);
+  CheckCudaError((char *) "Retrieving resultMatrix from device 0 to host", __LINE__);
 
-  cudaDeviceSynchronize();
+  cudaSetDevice(1);
+  printf("Copying matrices from host to device 1...\n");
+  cudaMemcpyAsync(d_imageGS_1, h_imageGS, numBytesImage, cudaMemcpyHostToDevice);
+  CheckCudaError((char *) "Copy data from host to device 1", __LINE__);
+  printf("Executing kernel detectFaces on device 1...\n");
+  detectFaces<<<dimGrid, dimBlock>>>(d_imageGS_1, winSizes[1], winSizes[1], d_resultMatrix_1);
+  CheckCudaError((char *) "Invoke Kernel 1", __LINE__);
+  printf("Retrieving resultMatrix from device 1 to host...\n");
+  cudaMemcpy(h_resultMatrix_1, d_resultMatrix_1, numBytesResultMatrix, cudaMemcpyDeviceToHost);
+  CheckCudaError((char *) "Retrieving resultMatrix from device 1 to host", __LINE__);
 
-  // Result to image
+  cudaSetDevice(2);
+  printf("Copying matrices from host to device 2...\n");
+  cudaMemcpyAsync(d_imageGS_2, h_imageGS, numBytesImage, cudaMemcpyHostToDevice);
+  CheckCudaError((char *) "Copy data from host to device 2", __LINE__);
+  printf("Executing kernel detectFaces on device 2...\n");
+  detectFaces<<<dimGrid, dimBlock>>>(d_imageGS_2, winSizes[2], winSizes[2], d_resultMatrix_2);
+  CheckCudaError((char *) "Invoke Kernel 2", __LINE__);
+  printf("Retrieving resultMatrix from device 2 to host...\n");
+  cudaMemcpy(h_resultMatrix_2, d_resultMatrix_2, numBytesResultMatrix, cudaMemcpyDeviceToHost);
+  CheckCudaError((char *) "Retrieving resultMatrix from device 2 to host", __LINE__);
+
+  cudaSetDevice(3);
+  printf("Copying matrices from host to device 3...\n");
+  cudaMemcpyAsync(d_imageGS_3, h_imageGS, numBytesImage, cudaMemcpyHostToDevice);
+  CheckCudaError((char *) "Copy data from host to device 3", __LINE__);
+  printf("Executing kernel detectFaces on device 3...\n");
+  detectFaces<<<dimGrid, dimBlock>>>(d_imageGS_3, winSizes[3], winSizes[3], d_resultMatrix_3);
+  CheckCudaError((char *) "Invocar Kernel 3", __LINE__);
+  printf("Retrieving resultMatrix from device 3 to host...\n");
+  cudaMemcpy(h_resultMatrix_3, d_resultMatrix_3, numBytesResultMatrix, cudaMemcpyDeviceToHost);
+  CheckCudaError((char *) "Retrieving resultMatrix from device 3 to host", __LINE__);
+
+
+  //for(int i = 0; i < 4; ++i) { cudaSetDevice(i); cudaDeviceSynchronize(); }
+
+
+  // Process results
   float widthRatio =  float(fc.image->width())/IMG_WIDTH;
   float heightRatio =  float(fc.image->height())/IMG_HEIGHT;
-  int step = (IMG_WIDTH - winWidth) / NUM_BLOCKS + 1;
   for(int i = 0; i < NUM_BLOCKS; ++i)
   {
       for(int j = 0; j < NUM_BLOCKS; ++j)
       {
-          if (h_resultMatrix[i * NUM_BLOCKS + j] == 1) {
-              printf("(%d,%d)\n", j, i);
-              fc.resultWindows.push_back(Box(int(j * step * widthRatio),
-                                             int(i * step * heightRatio),
-                                             int(winWidth * widthRatio),
-                                             int(winHeight * heightRatio)));
+          if (h_resultMatrix_0[i * NUM_BLOCKS + j] == 1) {
+              int step = (IMG_WIDTH - winSizes[0]) / NUM_BLOCKS + 1;
+              printf("Result found for size(%d,%d) in x,y: (%d,%d)\n", winSizes[0], winSizes[0] * 1.5, j, i);
+              fc.resultWindows.push_back(Box(int(j * step * widthRatio), int(i * step * heightRatio),
+                                             int(winSizes[0] * widthRatio), int(winSizes[0] * heightRatio)));
+          }
+          if (h_resultMatrix_1[i * NUM_BLOCKS + j] == 1) {
+              int step = (IMG_WIDTH - winSizes[1]) / NUM_BLOCKS + 1;
+              printf("Result found for size(%d,%d) in x,y: (%d,%d)\n", winSizes[0], winSizes[0], j, i);
+              fc.resultWindows.push_back(Box(int(j * step * widthRatio), int(i * step * heightRatio),
+                                             int(winSizes[0] * widthRatio), int(winSizes[0] * heightRatio)));
+          }
+          if (h_resultMatrix_2[i * NUM_BLOCKS + j] == 1) {
+              int step = (IMG_WIDTH - winSizes[2]) / NUM_BLOCKS + 1;
+              printf("Result found for size(%d,%d) in x,y: (%d,%d)\n", winSizes[2], winSizes[2], j, i);
+              fc.resultWindows.push_back(Box(int(j * step * widthRatio), int(i * step * heightRatio),
+                                             int(winSizes[2] * widthRatio), int(winSizes[2] * heightRatio)));
+          }
+          if (h_resultMatrix_3[i * NUM_BLOCKS + j] == 1) {
+              int step = (IMG_WIDTH - winSizes[3]) / NUM_BLOCKS + 1;
+              printf("Result found for size(%d,%d) in x,y: (%d,%d)\n", winSizes[3], winSizes[3], j, i);
+              fc.resultWindows.push_back(Box(int(j * step * widthRatio), int(i * step * heightRatio),
+                                             int(winSizes[3] * widthRatio), int(winSizes[3] * heightRatio)));
           }
       }
   }
   fc.saveResult();
-  // ////////////////////////
 
-  // Liberar Memoria del device
+
+  // Free device memory
   printf("Freeing device memory...\n");
-  cudaFree(d_resultMatrix);
-  cudaFree(d_imageGS);
+  cudaSetDevice(0); cudaFree(d_imageGS_0); cudaFree(d_resultMatrix_0);
+  cudaSetDevice(1); cudaFree(d_imageGS_1); cudaFree(d_resultMatrix_1);
+  cudaSetDevice(2); cudaFree(d_imageGS_2); cudaFree(d_resultMatrix_2);
+  cudaSetDevice(3); cudaFree(d_imageGS_3); cudaFree(d_resultMatrix_3);
 
-  printf("FINISHED!");
-
-}
-
-
-void CheckCudaError(char sms[], int line) {
-  cudaError_t error;
-  error = cudaGetLastError();
-  if (error) {
-    printf("(ERROR) %s - %s in %s at line %d\n", sms, cudaGetErrorString(error), __FILE__, line);
-    exit(EXIT_FAILURE);
-  }
+  printf("Done.");
 }
 
 
