@@ -1,0 +1,23 @@
+==7252== NVPROF is profiling process 7252, command: ./bin/face_detection.exe images/img1.png
+==7252== Profiling application: ./bin/face_detection.exe images/img1.png
+==7252== Profiling result:
+Time(%)      Time     Calls       Avg       Min       Max  Name
+ 99.87%  96.878ms         1  96.878ms  96.878ms  96.878ms  detectFaces(unsigned char*, int, int, unsigned char*)
+  0.12%  115.07us         2  57.536us  11.872us  103.20us  [CUDA memcpy HtoD]
+  0.01%  11.904us         1  11.904us  11.904us  11.904us  [CUDA memcpy DtoH]
+
+==7252== API calls:
+Time(%)      Time     Calls       Avg       Min       Max  Name
+ 70.99%  250.83ms         2  125.42ms  172.10us  250.66ms  cudaMalloc
+ 27.52%  97.253ms         3  32.418ms  5.4040us  97.149ms  cudaDeviceSynchronize
+  0.55%  1.9603ms       332  5.9040us     169ns  340.18us  cuDeviceGetAttribute
+  0.33%  1.1493ms         3  383.10us  67.696us  975.48us  cudaMemcpy
+  0.26%  909.44us         1  909.44us  909.44us  909.44us  cudaLaunch
+  0.24%  850.66us         2  425.33us  340.03us  510.63us  cudaFree
+  0.06%  206.68us         4  51.671us  49.888us  53.357us  cuDeviceTotalMem
+  0.05%  175.97us         4  43.991us  41.703us  47.031us  cuDeviceGetName
+  0.00%  4.7250us         4  1.1810us     530ns  2.7360us  cudaGetLastError
+  0.00%  4.6820us         4  1.1700us     210ns  3.5670us  cudaSetupArgument
+  0.00%  3.4450us         2  1.7220us     642ns  2.8030us  cuDeviceGetCount
+  0.00%  2.9520us         8     369ns     195ns     565ns  cuDeviceGet
+  0.00%  1.6040us         1  1.6040us  1.6040us  1.6040us  cudaConfigureCall

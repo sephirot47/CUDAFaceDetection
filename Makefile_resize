@@ -1,18 +1,16 @@
-all: bin/test_resize.exe
-	touch output/a
-	rm output/*
+all: test_resize.exe
 
-bin/stbi.o: src/stbi.cpp
-	g++ -O3 -std=c++11 -Iinclude -c src/stbi.cpp -o bin/stbi.o
+stbi.o: stbi.cpp
+	g++ -std=c++11 -c stbi.cpp -o stbi.o
 
-bin/test_resize.o: src/test_resize.cpp
-	g++ -O3 -std=c++11 -Iinclude -c -o bin/test_resize.o src/test_resize.cpp
+test_resize.o: test_resize.cpp
+	g++ -std=c++11 -c -o test_resize.o test_resize.cpp
 
-bin/test_resize.exe: bin/stbi.o bin/test_resize.o
-	g++ -O3 -std=c++11 -Iinclude bin/test_resize.o bin/stbi.o -o bin/test_resize.exe
+test_resize.exe: stbi.o test_resize.o
+	g++ -std=c++11 test_resize.o -o test_resize.exe
 
 clean:
-	rm -rf bin/*
-        
+	rm -rf *.o *.exe
+	
 ultraclean:
-	rm -rf bin/*                             
+	rm -rf *.o* *.e* $(EXE)

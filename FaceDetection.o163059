@@ -1,0 +1,37 @@
+Usage: ./bin/face_detection.exe <image file name>
+./bin/face_detection.exe
+images/img1.png
+images/img1.png read successfully
+image File: images/img1.png, size(3000 px, 2070 px)
+Adapting input. Creating grayscale image....
+Resizing original image....
+Getting memory in the host to allocate resultMatrix...
+Getting memory in the device...
+Copying matrices from host to device...
+Executing kernel detectFaces...
+step: 4
+Retrieving resultMatrix from device to host...
+(104,14)
+(106,14)
+(47,21)
+(137,26)
+(137,27)
+(138,34)
+(215,37)
+(216,37)
+(217,37)
+(218,37)
+(195,38)
+(189,39)
+(171,42)
+(192,46)
+(215,46)
+(22,53)
+(23,53)
+(81,85)
+(82,85)
+(80,86)
+(81,86)
+Saving result...
+Freeing device memory...
+FINISHED!

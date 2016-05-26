@@ -251,23 +251,23 @@ __device__ void resize(uc *src, int srcx, int srcy, int srcw, int srch, int srcT
 }
 
 
-__device__ float getHistogram(uc *img, int ox, int oy, int width, int height, int imgWidth, float histogram[256]) {
+__device__ void getHistogram(uc *img, int ox, int oy, int width, int height, int imgWidth, float histogram[256]) {
 
   float npixels = width * height;
   float unitProb = 1.0f/npixels;
-  float maxfreq = 0.0f;
-  for(int i = 0; i < 256; ++i) histogram[i] = 0;
-  for(int y = oy; y < oy + height; ++y)
+  
+  //for(int i = 0; i < 256; ++i) histogram[i] = 0;
+  if(threadIdx.x < 256) histogram[threadIdx.x] = 0;
+ 
+  int size = width * height;
+  for(int i = threadIdx.x; i < size; i += NUM_THREADS)
   {
-      for(int x = ox; x < ox + width; ++x)
-      {
-        int offset = y * imgWidth + x;
+	int wx = i % width;
+ 	int wy = i / width;
+	int offset = (oy + wy) * imgWidth + (ox + wx);
         uc v = img[offset];
-        histogram[v] += unitProb;
-        if(histogram[v] > maxfreq) maxfreq = histogram[v];
-      }
+        atomicAdd(&histogram[v], unitProb);
   }
-  return maxfreq;
 }
 
 // Increase contrast
@@ -276,15 +276,15 @@ __device__ void histogramEqualization(uc *img, int ox, int oy, int width, int he
     __shared__ float histogram[256];
     __shared__ float accumulatedProbs[256];
     
+    getHistogram(img, ox, oy, width, height, imgWidth, histogram);
+    
     if(threadIdx.x == 0)
     { 
-	getHistogram(img, ox, oy, width, height, imgWidth, histogram);
         accumulatedProbs[0] = histogram[0];
-    	for(int i = 1; i < 32; ++i)
+    	for(int i = 1; i < 256; ++i)
  	{
-		accumulatedProbs[i] = 1;
+	 	accumulatedProbs[i] = accumulatedProbs[i-1] + histogram[i];
 	}
-	 	//accumulatedProbs[i] = accumulatedProbs[i-1] + histogram[i];
     }
     __syncthreads();
     
