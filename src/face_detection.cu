@@ -16,10 +16,10 @@
 
 //Optimal values 40, 550
 #define THRESH_9x9 40     //Bigger = more restrictive
-#define THRESH_30x30 550  //Bigger = less restrictive
+#define THRESH_30x30 600  //Bigger = less restrictive
 
-#include "stbi.h"
-#include "stbi_write.h"
+#include "../include/stbi.h"
+#include "../include/stbi_write.h"
 
 typedef unsigned char uc;
 using namespace std;
@@ -261,13 +261,43 @@ __device__ float getHistogram(uc *img, int ox, int oy, int width, int height, in
   {
       for(int x = ox; x < ox + width; ++x)
       {
-      int offset = y * imgWidth + x;
-      uc v = img[offset];
-      histogram[v] += unitProb;
-      if(histogram[v] > maxfreq) maxfreq = histogram[v];
+        int offset = y * imgWidth + x;
+        uc v = img[offset];
+        histogram[v] += unitProb;
+        if(histogram[v] > maxfreq) maxfreq = histogram[v];
       }
   }
   return maxfreq;
+}
+
+// Increase contrast
+__device__ void histogramEqualization(uc *img, int ox, int oy, int width, int height, int imgWidth)
+{
+    __shared__ float histogram[256];
+    __shared__ float accumulatedProbs[256];
+    
+    if(threadIdx.x == 0)
+    { 
+	getHistogram(img, ox, oy, width, height, imgWidth, histogram);
+        accumulatedProbs[0] = histogram[0];
+    	for(int i = 1; i < 32; ++i)
+ 	{
+		accumulatedProbs[i] = 1;
+	}
+	 	//accumulatedProbs[i] = accumulatedProbs[i-1] + histogram[i];
+    }
+    __syncthreads();
+    
+    
+    int size = width * height;
+    for(int i = threadIdx.x; i < size; i += NUM_THREADS)
+    {
+	 int wx = i % width;
+	 int wy = i / width;
+	 int offset = (oy + wy) * imgWidth + (ox + wx);
+    	 uc v = img[offset];
+         img[offset] = floor(255 * accumulatedProbs[v]);
+    }
 }
 
 __device__ void toBlackAndWhite(uc *img, int ox, int oy, int width, int height, int imgWidth)
@@ -280,27 +310,6 @@ __device__ void toBlackAndWhite(uc *img, int ox, int oy, int width, int height, 
         int offset = (oy + wy) * width + (ox + wx);
         uc v = img[offset];
         img[offset] = v > 200 ? 255 : 0;
-    }
-}
-
-// Increase contrast
-__device__ void histogramEqualization(uc *img, int ox, int oy, int width, int height, int imgWidth)
-{
-    __shared__ float histogram[256];
-    getHistogram(img, ox, oy, width, height, imgWidth, histogram);
-
-    __shared__ float accumulatedProbs[256];
-    accumulatedProbs[0] = histogram[0];
-    for(int i = 1; i < 256; ++i) accumulatedProbs[i] = accumulatedProbs[i-1] + histogram[i];
-
-    for(int y = oy; y < oy + height; ++y)
-    {
-        for(int x = ox; x < ox + width; ++x)
-        {
-            int offset = y * imgWidth + x;
-            uc v = img[offset];
-            img[offset] = floor(255 * accumulatedProbs[v]);
-        }
     }
 }
 
@@ -394,9 +403,11 @@ __global__ void detectFaces(uc *img,
            0, 0, 9, 9, 9);
     __syncthreads();
 
+    histogramEqualization(window30x30, 0, 0, 9, 9, 9);
+    __syncthreads();
+    
     __shared__ uc hv1;
     if(threadIdx.x == 0) {
-        histogramEqualization(window30x30, 0, 0, 9, 9, 9);
         hv1 = getFirstStageHeuristic(window30x30);
     }
     __syncthreads();
