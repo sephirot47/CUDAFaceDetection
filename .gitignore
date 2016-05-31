@@ -5,3 +5,5 @@
 *.cubin
 output/*
 *.fatbin
+*.o*
+*.e*
