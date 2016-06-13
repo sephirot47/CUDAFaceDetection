@@ -16,8 +16,8 @@
 #define THRESH_9x9 40     //Bigger = more restrictive
 #define THRESH_30x30 700  //Bigger = less restrictive
 
-#include "stbi.h"
-#include "stbi_write.h"
+#include "../include/stbi.h"
+#include "../include/stbi_write.h"
 
 typedef unsigned char uc;
 using namespace std;
@@ -71,6 +71,20 @@ public:
                    (data[offset + 2]), (data[offset + 3]));
   }
 
+  void setColor(Pixel p, Color c) {
+      int offset = (p.y * _width + p.x) * 3;
+      data[offset + 0] = c.r;
+      data[offset + 1] = c.g;
+      data[offset + 2] = c.b;
+  }
+
+  void invertColor(Pixel p) {
+      int offset = (p.y * _width + p.x) * 3;
+      data[offset + 0] = 255 - data[offset + 0];
+      data[offset + 1] = 255 - data[offset + 1];
+      data[offset + 2] = 255 - data[offset + 2];
+  }
+
   uc getGrayScale(Pixel p) { return grayscale(getColor(p)); }
 
 private:
@@ -98,7 +112,7 @@ public:
     return abs(gray1-gray2);
   }
 
-  void saveResult()
+  /*void saveResult()
   {
       int boxStroke = 1;
       printf("Saving result...\n");
@@ -142,6 +156,36 @@ public:
 
       stbi_write_bmp("output/result.bmp", container->width(), container->height(), 3, result);
       //saveImage(result, 0, 0, container->width(), container->height(), container->width()*3, );
+  }*/
+
+  void saveResult() {
+      printf("Saving result...\n");
+
+      Color c = Color(0,255,0,255);
+      for(Box b : resultWindows) {
+          for (int i = b.x; i < b.x+b.w; ++i) {
+              //container->invertColor(Pixel(i,b.y));
+              container->setColor(Pixel(i,b.y),c);
+              container->setColor(Pixel(i,b.y+1),c);
+          }
+          for (int i = b.x; i < b.x+b.w; ++i) {
+              //container->invertColor(Pixel(i,b.y+b.h-1));
+              container->setColor(Pixel(i,b.y+b.h-1),c);
+              container->setColor(Pixel(i,b.y+b.h-2),c);
+          }
+          for (int i = b.y; i < b.y+b.h; ++i) {
+              //container->invertColor(Pixel(b.x,i));
+              container->setColor(Pixel(b.x,i),c);
+              container->setColor(Pixel(b.x+1,i),c);
+          }
+          for (int i = b.y; i < b.y+b.h; ++i) {
+              //container->invertColor(Pixel(b.x+b.w-1,i));
+              container->setColor(Pixel(b.x+b.w-1,i),c);
+              container->setColor(Pixel(b.x+b.w-2,i),c);
+          }
+      }
+
+      stbi_write_bmp("output/result.bmp", container->width(), container->height(), 3, container->data);
   }
 
 private:
@@ -445,7 +489,7 @@ int main(int argc, char** argv)
   int winHeight = 51;
   float widthRatio = float(fc.container->width()) / IMG_WIDTH;
   float heightRatio = float(fc.container->height()) / IMG_HEIGHT;
-  int step = 15;
+  int step = 4;
   for (int y = 0; y < IMG_HEIGHT - winHeight; y += step)
   {
       for (int x = 0; x < IMG_WIDTH - winWidth; x += step)

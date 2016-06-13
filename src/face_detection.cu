@@ -91,6 +91,20 @@ public:
       return c;
   }
 
+  void setColor(Pixel p, Color c) {
+      int offset = (p.y * _width + p.x) * 3;
+      data[offset + 0] = c.r;
+      data[offset + 1] = c.g;
+      data[offset + 2] = c.b;
+  }
+
+  void invertColor(Pixel p) {
+      int offset = (p.y * _width + p.x) * 3;
+      data[offset + 0] = 255 - data[offset + 0];
+      data[offset + 1] = 255 - data[offset + 1];
+      data[offset + 2] = 255 - data[offset + 2];
+  }
+
   uc getGrayScale(Pixel p) {
     return grayscale(getColor(p));
   }
@@ -118,7 +132,8 @@ public:
     image = new Image(imageFile);
   }
 
-  void saveResult()
+  // Innefficient Vector's code
+  /*void saveResult()
   {
       int boxStroke = 1;
       printf("Saving result...\n");
@@ -162,6 +177,37 @@ public:
       }
 
       stbi_write_bmp("output/result.bmp", image->width(), image->height(), 3, result);
+  }*/
+
+  // Efficient Oscar's code
+  void saveResult() {
+      printf("Saving result...\n");
+
+      Color c = Color(0,255,0,255);
+      for(Box b : resultWindows) {
+          for (int i = b.x; i < b.x+b.w; ++i) {
+              //image->invertColor(Pixel(i,b.y));
+              image->setColor(Pixel(i,b.y),c);
+              image->setColor(Pixel(i,b.y+1),c);
+          }
+          for (int i = b.x; i < b.x+b.w; ++i) {
+              //image->invertColor(Pixel(i,b.y+b.h-1));
+              image->setColor(Pixel(i,b.y+b.h-1),c);
+              image->setColor(Pixel(i,b.y+b.h-2),c);
+          }
+          for (int i = b.y; i < b.y+b.h; ++i) {
+              //image->invertColor(Pixel(b.x,i));
+              image->setColor(Pixel(b.x,i),c);
+              image->setColor(Pixel(b.x+1,i),c);
+          }
+          for (int i = b.y; i < b.y+b.h; ++i) {
+              //image->invertColor(Pixel(b.x+b.w-1,i));
+              image->setColor(Pixel(b.x+b.w-1,i),c);
+              image->setColor(Pixel(b.x+b.w-2,i),c);
+          }
+      }
+
+      stbi_write_bmp("output/result.bmp", image->width(), image->height(), 3, image->data);
   }
 
 private:
