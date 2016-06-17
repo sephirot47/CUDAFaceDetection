@@ -299,20 +299,19 @@ __device__ void resize(uc *src, int srcx, int srcy, int srcw, int srch, int srcT
 
 __device__ void getHistogram(uc *img, int ox, int oy, int width, int height, int imgWidth, float histogram[256]) {
 
-  float npixels = width * height;
-  float unitProb = 1.0f/npixels;
+    float npixels = width * height;
+    float unitProb = 1.0f/npixels;
 
-  if(threadIdx.x < 256) histogram[threadIdx.x] = 0;
- 
-  int size = width * height;
-  for(int i = threadIdx.x; i < size; i += NUM_THREADS)
-  {
-	int wx = i % width;
- 	int wy = i / width;
-	int offset = (oy + wy) * imgWidth + (ox + wx);
-    uc v = img[offset];
-    atomicAdd(&histogram[v], unitProb);
-  }
+    if(threadIdx.x < 256) histogram[threadIdx.x] = 0;
+
+    for(int i = threadIdx.x; i < npixels; i += NUM_THREADS)
+    {
+        int wx = i % width;
+        int wy = i / width;
+        int offset = (oy + wy) * imgWidth + (ox + wx);
+        uc v = img[offset];
+        atomicAdd(&histogram[v], unitProb);
+    }
 }
 
 // Increase contrast
@@ -327,9 +326,7 @@ __device__ void histogramEqualization(uc *img, int ox, int oy, int width, int he
     { 
         accumulatedProbs[0] = histogram[0];
     	for(int i = 1; i < 256; ++i)
- 	{
-	 	accumulatedProbs[i] = accumulatedProbs[i-1] + histogram[i];
-	}
+            accumulatedProbs[i] = accumulatedProbs[i-1] + histogram[i];
     }
     __syncthreads();
     
@@ -364,11 +361,7 @@ __device__ uc getFirstStageHeuristic(uc *img) {
 }
 
 // Find edges in horizontal direction
-__device__ void sobelEdgeDetection(uc *img,
-                                   int ox, int oy,
-                                   int winWidth, int winHeight,
-                                   int imgWidth,
-                                   uc *sobelImg)
+__device__ void sobelEdgeDetection(uc *img, int ox, int oy,  int winWidth, int winHeight, int imgWidth, uc *sobelImg)
 {
     uc threshold = 24;
 
@@ -403,26 +396,32 @@ __device__ void sobelEdgeDetection(uc *img,
 }
 
 __device__ int getSecondStageHeuristic(uc *img) {
-    int sumDiff = 0;
-    int leftEye = getWindowMeanGS(img,2,4,9,5,30);
+    int sumDiff    = 0;
+    int leftEye    = getWindowMeanGS(img, 2, 4, 9, 5,30);
+    int rightEye   = getWindowMeanGS(img,18, 4, 9, 5,30);
+    int upperNose  = getWindowMeanGS(img,11, 1, 6,13,30);
+    int lowerNose  = getWindowMeanGS(img,10,15, 9, 5,30);
+    int leftCheek  = getWindowMeanGS(img, 1,10, 8,10,30);
+    int rightCheek = getWindowMeanGS(img,19,10, 8,10,30);
+    int mouth      = getWindowMeanGS(img, 8,21,13, 5,30);
+
     sumDiff += leftEye;
-    int rightEye = getWindowMeanGS(img,18,4,9,5,30);
     sumDiff += rightEye;
-    sumDiff += abs(rightEye - leftEye); // simmetry
-    sumDiff += 255-getWindowMeanGS(img,11,1,6,13,30); // upper nose
-    sumDiff += abs(125 - getWindowMeanGS(img,10,15,9,5,30)); // lower nose
-    int leftCheek = 255-getWindowMeanGS(img,1,10,8,10,30); // left cheek
-    sumDiff += leftCheek;
-    int rightCheek = 255-getWindowMeanGS(img,19,10,8,10,30); // right cheek
-    sumDiff += rightCheek;
-    sumDiff += abs(leftCheek - rightCheek);
-    sumDiff += getWindowMeanGS(img,8,21,13,5,30); // mouth
+    sumDiff += abs(leftEye - rightEye); // simmetry
+
+    sumDiff += 255-upperNose;
+    sumDiff += abs(125-lowerNose);
+
+    sumDiff += 255-leftCheek;
+    sumDiff += 255-rightCheek;
+    sumDiff += abs(leftCheek - rightCheek); // simmetry
+
+    sumDiff += mouth; // mouth
+
     return sumDiff;
 }
 
-__global__ void detectFaces(uc *img,
-                            int winWidth, int winHeight,
-                            uc  *resultMatrix)
+__global__ void detectFaces(uc *img, int winWidth, int winHeight, uc  *resultMatrix)
 {
     int step = (IMG_WIDTH - winWidth) / NUM_BLOCKS + 1;
     if(threadIdx.x == 0 && blockIdx.x == 0 && blockIdx.y == 0)
