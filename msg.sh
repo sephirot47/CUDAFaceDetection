@@ -6,8 +6,8 @@ export PATH=/Soft/cuda/7.5.18/bin:$PATH
 # Asegurar que el job mantiene las variables de entorno del shell lamador
 #$ -V
 # Cambiar el nombre del job
-#$ -N FaceDetection
+#$ -N VamoHombre
 # Cambiar el shell
 #$ -S /bin/bash
 
-time nvprof --print-summary-per-gpu ./bin/face_detection.exe images/input.png
+sleep 5

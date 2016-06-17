@@ -6,7 +6,7 @@ if [ "$?" != "0" ] ; then
 	exit 1
 fi
 
-INPUT="images/img1.png"
+INPUT=$1
 WIDTH=$( file $INPUT | cut -d"," -f2 | cut -d"," -f1 | cut -d"x" -f1 | cut -d" " -f2)
 HEIGHT=$( file $INPUT | cut -d"," -f2 | cut -d"," -f1 | cut -d"x" -f2 | cut -d" " -f2)
 if [ $HEIGHT -lt 1024 ] && [ $HEIGHT -lt $WIDTH ]; then
@@ -18,8 +18,9 @@ else
 fi
 
 qsub -l cuda job.sh 
-while [ "$(qstat | grep cuda05 | wc -l)" != "1" ]; do 
-	sleep 1
-done
+
+#while [ "$(qstat | grep cuda05 | wc -l)" != "1" ]; do 
+#	sleep 1
+#done
 #convert -scale 30% output/result.bmp output/result_small.bmp
-display output/result.bmp
+#display output/result.bmp
