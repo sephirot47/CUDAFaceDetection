@@ -580,24 +580,7 @@ int main(int argc, char** argv)
   float widthRatio =  float(fc.image->width())/IMG_WIDTH;
   float heightRatio =  float(fc.image->height())/IMG_HEIGHT;
   const int windowsPerDevice = numWindows / NUM_DEVICES;
-  for (int i = 0; i < windowsPerDevice; ++i) {
-      for(int j = 0; j < NUM_DEVICES; ++j) {
-          cudaSetDevice(j);
-          int index = j*windowsPerDevice + i;
-          printf("Copying matrices from host to device %d...\n", j);
-          cudaMemcpyAsync(d_imageGS[j], h_imageGS, numBytesImage, cudaMemcpyHostToDevice); //CE();
-          printf("Executing kernel detectFaces on device %d...\n", j);
-          detectFaces<<<dimGrid, dimBlock>>>(d_imageGS[j], winSizes[index] / widthRatio, winSizes[index] / heightRatio, d_resultMatrix[j]); //CE();
-      }
-      for(int j = 0; j < NUM_DEVICES; ++j) {
-          cudaSetDevice(j);
-          int index = j*windowsPerDevice + i;
-          printf("Retrieving resultMatrix from device %d to host...\n", j);
-          cudaMemcpy(h_resultMatrix[index], d_resultMatrix[j], numBytesResultMatrix, cudaMemcpyDeviceToHost); //CE();
-      }
-  }
-
-  /*for(int i = 0; i < NUM_DEVICES; ++i)
+  for(int i = 0; i < NUM_DEVICES; ++i)
   {
       for(int j = 0; j < windowsPerDevice; ++j)
       {
@@ -610,25 +593,24 @@ int main(int argc, char** argv)
 	      printf("Retrieving resultMatrix from device %d to host...\n", i);
 	      cudaMemcpy(h_resultMatrix[index], d_resultMatrix[i], numBytesResultMatrix, cudaMemcpyDeviceToHost); //CE();
      }
-  }*/
+  }
 
   for(int i = 0; i < NUM_DEVICES; ++i) { cudaSetDevice(i); cudaDeviceSynchronize(); }
 
   // Process results
   for(int k = 0; k < numWindows; ++k)
   {
-      for(int i = 0; i < NUM_BLOCKS; ++i)
-      {
-	 for(int j = 0; j < NUM_BLOCKS; ++j)
-	 {
-              if (h_resultMatrix[k][i * NUM_BLOCKS + j] == 1) {
-                  int kernelStep = (IMG_WIDTH - winSizes[k]/widthRatio) / NUM_BLOCKS + 1;
-                  printf("Result found for size(%d,%d) in x,y: (%d,%d)\n", winSizes[k], winSizes[k], j, i);
-                  fc.resultWindows.push_back(Box(int(j * kernelStep * widthRatio), int(i * kernelStep * heightRatio),
-                                                 int(winSizes[k]), int(winSizes[k])));
-              }
-          }
-      }
+    for(int i = 0; i < NUM_BLOCKS; ++i)
+        {
+        for(int j = 0; j < NUM_BLOCKS; ++j)
+            {
+            if (h_resultMatrix[k][i * NUM_BLOCKS + j] == 1) {
+                int kernelStep = (IMG_WIDTH - winSizes[k]/widthRatio) / NUM_BLOCKS + 1;
+                printf("Result found for size(%d,%d) in x,y: (%d,%d)\n", winSizes[k], winSizes[k], j, i);
+                fc.resultWindows.push_back(Box(int(j * kernelStep * widthRatio), int(i * kernelStep * heightRatio),int(winSizes[k]), int(winSizes[k])));
+            }
+        }
+    }
   }
   fc.saveResult();
 
