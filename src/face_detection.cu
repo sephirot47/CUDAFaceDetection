@@ -548,7 +548,7 @@ int main(int argc, char** argv)
   dim3 dimBlock(NUM_THREADS, 1, 1);
   int winSizes[] = {35, 180, 30, 45,
                     80, 120, 40, 55,
-		    100, 90, 50, 65,
+                    100, 90, 50, 65,
                     150, 45, 60, 70
                    };
 
