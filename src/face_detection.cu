@@ -59,6 +59,7 @@ class Image
 {
 public:
   char* filename;
+  uc *data;
 
   Image(char* filename)
   {
@@ -110,7 +111,6 @@ public:
   }
 
 private:
-  uc *data;
   int _width, _height, comp;
 
   uc grayscale(const Color &c) {
