@@ -580,7 +580,24 @@ int main(int argc, char** argv)
   float widthRatio =  float(fc.image->width())/IMG_WIDTH;
   float heightRatio =  float(fc.image->height())/IMG_HEIGHT;
   const int windowsPerDevice = numWindows / NUM_DEVICES;
-  for(int i = 0; i < NUM_DEVICES; ++i)
+  for (int i = 0; i < windowsPerDevice; ++i) {
+      for(int j = 0; j < NUM_DEVICES; ++j) {
+          cudaSetDevice(j);
+          int index = j*windowsPerDevice + i;
+          printf("Copying matrices from host to device %d...\n", j);
+          cudaMemcpyAsync(d_imageGS[j], h_imageGS, numBytesImage, cudaMemcpyHostToDevice); //CE();
+          printf("Executing kernel detectFaces on device %d...\n", j);
+          detectFaces<<<dimGrid, dimBlock>>>(d_imageGS[j], winSizes[index] / widthRatio, winSizes[index] / heightRatio, d_resultMatrix[j]); //CE();
+      }
+      for(int j = 0; j < NUM_DEVICES; ++j) {
+          cudaSetDevice(j);
+          int index = j*windowsPerDevice + i;
+          printf("Retrieving resultMatrix from device %d to host...\n", j);
+          cudaMemcpy(h_resultMatrix[index], d_resultMatrix[j], numBytesResultMatrix, cudaMemcpyDeviceToHost); //CE();
+      }
+  }
+
+  /*for(int i = 0; i < NUM_DEVICES; ++i)
   {
       for(int j = 0; j < windowsPerDevice; ++j)
       {
@@ -593,7 +610,7 @@ int main(int argc, char** argv)
 	      printf("Retrieving resultMatrix from device %d to host...\n", i);
 	      cudaMemcpy(h_resultMatrix[index], d_resultMatrix[i], numBytesResultMatrix, cudaMemcpyDeviceToHost); //CE();
      }
-  }
+  }*/
 
   for(int i = 0; i < NUM_DEVICES; ++i) { cudaSetDevice(i); cudaDeviceSynchronize(); }
 
