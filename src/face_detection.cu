@@ -576,10 +576,18 @@ int main(int argc, char** argv)
       cudaMalloc((uc**)&d_imageGS[i], numBytesImage); CE();
       cudaMalloc((uc**)&d_resultMatrix[i], numBytesResultMatrix); CE();
   }
+
+  cudaEvent_t E0, E1;
+  cudaEventCreate(&E0);
+  cudaEventCreate(&E1);
  
   float widthRatio =  float(fc.image->width())/IMG_WIDTH;
   float heightRatio =  float(fc.image->height())/IMG_HEIGHT;
   const int windowsPerDevice = numWindows / NUM_DEVICES;
+
+  cudaEventRecord(E0, 0);
+  cudaEventSynchronize(E0);
+
   for(int i = 0; i < NUM_DEVICES; ++i)
   {
       for(int j = 0; j < windowsPerDevice; ++j)
@@ -596,6 +604,13 @@ int main(int argc, char** argv)
   }
 
   for(int i = 0; i < NUM_DEVICES; ++i) { cudaSetDevice(i); cudaDeviceSynchronize(); }
+
+  cudaEventRecord(E1, 0);
+  cudaEventSynchronize(E1);
+
+  float elapsedTime;
+  cudaEventElapsedTime(&elapsedTime,  E0, E1);
+  printf("Kernel elapsed time: %4.6f\n", elapsedTime);
 
   // Process results
   for(int k = 0; k < numWindows; ++k)
