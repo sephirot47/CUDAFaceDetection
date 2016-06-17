@@ -423,13 +423,14 @@ __device__ int getSecondStageHeuristic(uc *img) {
 
 __global__ void detectFaces(uc *img, int winWidth, int winHeight, uc  *resultMatrix)
 {
-    int step = (IMG_WIDTH - winWidth) / NUM_BLOCKS + 1;
+    int xstep = (IMG_WIDTH - winWidth) / NUM_BLOCKS + 1;
+    int ystep = (IMG_HEIGHT - winHeight) / NUM_BLOCKS + 1;
     if(threadIdx.x == 0 && blockIdx.x == 0 && blockIdx.y == 0)
-        printf("step: %d\n", step);
+        printf("step: %d\n", xstep);
 
     // Window origin
-    int x = blockIdx.x * step;
-    int y = blockIdx.y * step;
+    int x = blockIdx.x * xstep;
+    int y = blockIdx.y * ystep;
     int blockId = blockIdx.y * NUM_BLOCKS + blockIdx.x;
 
     if(x + winWidth > IMG_WIDTH || y + winHeight > IMG_HEIGHT)
