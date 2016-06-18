@@ -466,9 +466,7 @@ __global__ void detectFaces(uc *img, int winWidth, int winHeight, uc  *resultMat
         sobelEdgeDetection(img, x, y, winWidth, winHeight, IMG_WIDTH, sobelImg);
         __syncthreads();
 
-	if(threadIdx.x == 0 && blockIdx.x == 0 && blockIdx.y == 0)
-        	printf("AQUIIIIIIIIIII: %i, %i\n", winWidth, winHeight);
-	resize(sobelImg,
+        resize(sobelImg,
                0, 0, winWidth, winHeight, winWidth,
                window30x30,
                0, 0, 30, 30, 30);
@@ -594,8 +592,6 @@ int main(int argc, char** argv)
   cudaEventRecord(E0, 0);
   cudaEventSynchronize(E0);
 
-  printf("wr: %f\n", widthRatio);
-  printf("hr: %f\n", heightRatio);
   printf("Num windows: %i\n", numWindows);
   printf("Windows per device: %i\n", windowsPerDevice);
   for(int i = 0; i < NUM_DEVICES; ++i)
@@ -663,5 +659,6 @@ int main(int argc, char** argv)
 
   printf("Done.");
 }
+
 
 

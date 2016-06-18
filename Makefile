@@ -24,7 +24,7 @@ bin/one-device.exe: bin/stbi.o bin/one-device.o
 	$(NVCC) bin/stbi.o bin/one-device.o -o bin/one-device.exe $(LD_FLAGS)
 bin/four-devices.exe: bin/stbi.o bin/four-devices.o
 	$(NVCC) bin/stbi.o bin/four-devices.o -o bin/four-devices.exe $(LD_FLAGS)
-bin/four-devices.exe: bin/stbi.o bin/four-devices-pinned.o
+bin/four-devices-pinned.exe: bin/stbi.o bin/four-devices-pinned.o
 	$(NVCC) bin/stbi.o bin/four-devices.o -o bin/four-devices-pinned.exe $(LD_FLAGS)
 
 clean:

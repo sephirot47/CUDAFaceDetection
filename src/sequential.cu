@@ -124,8 +124,8 @@ struct Box { int x,y,w,h; Box(int _x, int _y, int _w, int _h) { x=_x; y=_y; w=_w
 class FaceDetection
 {
 public:
-  vector<Box> resultWindows;
   Image *image;
+  vector<Box> resultWindows;
 
   FaceDetection(char* imageFile)
   {
@@ -194,6 +194,9 @@ void saveImage(uc *img, int x, int y, int width, int height, int imgWidth, const
 }
 
 uc getWindowMeanGS(uc *img, int ox, int oy, int winWidth, int winHeight, int imgWidth) {
+
+    //if(winWidth == 0 || winHeight == 0) return 128; //cerr << ox << ", " << oy << ", " << winWidth << ", " << winHeight << ", " << imgWidth << endl;
+
     int sum = 0;
     for(int y = oy; y < oy + winHeight; ++y)
     {
@@ -262,6 +265,9 @@ void resize_seq(uc *src, int srcx, int srcy, int srcw, int srch, int srcTotalWid
     float bw = float(srcw) / dstw;
     float bh = float(srch) / dsth;
 
+    cerr << float(srcw) << " / " << dstw << endl;
+    cerr << float(srch) << " / " << dsth << endl;
+    cerr << "(" << bw << ", " << bh << ")" << endl;
     //For each pixel in the dst
     for(int dy = dsty; dy < dsty + dsth; ++dy)
     {
@@ -270,11 +276,32 @@ void resize_seq(uc *src, int srcx, int srcy, int srcw, int srch, int srcTotalWid
             //Save in its position the mean of the corresponding window pixels
             uc mean = getWindowMeanGS(src,
                                       srcx + ceil(dx*bw), srcy + ceil(dy*bh), //x, y
-                                      floor(bw), floor(bh),                   //width height
+                                      floor(bw) + 1, floor(bh) + 1,           //width height
                                       srcTotalWidth                           //totalWidth
                                       );
 
             dst[dy * dstTotalWidth + dx] = mean;
+  
+/*	 
+	   //Offset per dst pixel. Every pixel we move in x,y in dst,
+            //we move bw,bh in the src image.
+            int resizeOffset = ceil((dy * bh)) * srcTotalWidth + ceil((dx * bw));
+
+            //Save in its position the mean of the corresponding window pixels
+            int mean = 0;
+            for(int sy = 0; sy < floor(bh); ++sy)
+            {
+                for(int sx = 0; sx < floor(bw); ++sx)
+               {
+                    int srcOffset = (srcy + sy) * srcTotalWidth + (srcx + sx);
+                    uc v = src[srcOffset + resizeOffset];
+                    mean += v;
+                }
+            }
+
+            mean /= floor(bw * bh);
+            dst[dy * dstTotalWidth + dx] = mean;
+}*/
         }
     }
 }
@@ -387,14 +414,15 @@ void detectFaces(uc *img, int winWidth, int winHeight, uc  *resultMatrix)
 {
     int xstep = (IMG_WIDTH - winWidth) / NUM_BLOCKS + 1;
     int ystep = (IMG_HEIGHT - winHeight) / NUM_BLOCKS + 1;
-    printf("Kernel width:%i, height:%i\n", winWidth, winHeight);
+    //printf("Kernel width:%i, height:%i\n", winWidth, winHeight);
     printf("step: %d\n", xstep);
+
+    std::cerr << "00000" << std::endl;
     
     for(int x = 0 ; x < winWidth; x += xstep) {
     for(int y = 0;  y < winHeight; y += ystep) {
     
-    
-    int blockId = y * (IMG_WIDTH-winWidth) / (xstep-1) + x;
+    int blockId = (y/ystep) * NUM_BLOCKS + (x/xstep);
 
     if(x + winWidth > IMG_WIDTH || y + winHeight > IMG_HEIGHT)
     {
@@ -404,13 +432,15 @@ void detectFaces(uc *img, int winWidth, int winHeight, uc  *resultMatrix)
 
     // FIRST HEURISTIC
     uc window30x30[30*30];
+cerr << 1 << endl;
     resize_seq(img,
            x, y, winWidth, winHeight, IMG_WIDTH,
            window30x30,
            0, 0, 9, 9, 9);
-
+cerr << 2 << endl;
     histogramEqualization(window30x30, 0, 0, 9, 9, 9);
     
+cerr << 3  << endl;
     uc hv1;
     hv1 = getFirstStageHeuristic(window30x30);
 
@@ -426,6 +456,7 @@ void detectFaces(uc *img, int winWidth, int winHeight, uc  *resultMatrix)
                    0, 0, 30, 30, 30);
 
         toBlackAndWhite(window30x30, 0, 0, 30, 30, 30);
+
 
         int hv2 = getSecondStageHeuristic(window30x30);
 
@@ -464,6 +495,9 @@ int main(int argc, char** argv)
           h_imageGSOriginal[y * fc.image->width() + x] = fc.image->getGrayScale(Pixel(x,y));
       }
   }
+  
+  printf("image File: %s, size(%d px, %d px)\n",
+         fc.image->filename, fc.image->width(), fc.image->height());
 
   printf("Resizing original image....\n");
   int numBytesImage = IMG_WIDTH * IMG_HEIGHT * sizeof(uc);
@@ -476,6 +510,8 @@ int main(int argc, char** argv)
          );
   //
 
+  printf("image File: %s, size(%d px, %d px)\n",
+         fc.image->filename, fc.image->width(), fc.image->height());
 
   int winWidths[] = {35, 40, 45, 50, 55, 60, 65, 75, 85, 95, 105, 115, 125, 140, 150, 160, 170, 180, 190};
   int winHeights[] = {35, 40, 45, 50, 55, 60, 65, 75, 85, 95, 105, 115, 125, 140, 150, 160, 170, 180, 190};
@@ -493,7 +529,13 @@ int main(int argc, char** argv)
   float widthRatio =  float(fc.image->width())/IMG_WIDTH;
   float heightRatio =  float(fc.image->height())/IMG_HEIGHT;
 
+  printf("image File: %s, size(%d px, %d px)\n",
+         fc.image->filename, fc.image->width(), fc.image->height());
+
+  printf("wr: %f\n", widthRatio);
+  printf("hr: %f\n", heightRatio);
   printf("Num windows: %i\n", numWindows);
+  
   for(int i = 0; i < numWindows; ++i)
   {
       int wi = i / numWindowsWidth;
@@ -502,6 +544,7 @@ int main(int argc, char** argv)
       printf("wi: %i, hi: %i\n", wi, hi);
       printf("width: %i, height:%i\n", winWidths[wi], winHeights[hi]);
       printf("Executing detectFaces...\n");
+      printf("detectFaces(_, %f, %f, _)\n", winWidths[wi] / widthRatio, winHeights[hi] / heightRatio);
       detectFaces(h_imageGS, winWidths[wi] / widthRatio, winHeights[hi] / heightRatio, h_resultMatrix[i]);
   }
 
@@ -512,24 +555,23 @@ int main(int argc, char** argv)
         {
         for(int j = 0; j < NUM_BLOCKS; ++j)
             {
-	    if (h_resultMatrix[k][i * NUM_BLOCKS + j] == 1) 
-	    {
-	         int wi = k / numWindowsWidth;
-	         int hi = k % numWindowsHeight;
-                 int stepWidth = (IMG_WIDTH - winWidths[wi]/widthRatio) / NUM_BLOCKS + 1;
-                 int stepHeight = (IMG_HEIGHT - winHeights[hi]/heightRatio) / NUM_BLOCKS + 1;
+            if (h_resultMatrix[k][i * NUM_BLOCKS + j] == 1)
+            {
+                 int wi = k / numWindowsWidth;
+                 int hi = k % numWindowsHeight;
+                 int kernelStepWidth = (IMG_WIDTH - winWidths[wi]/widthRatio) / NUM_BLOCKS + 1;
+                 int kernelStepHeight = (IMG_HEIGHT - winHeights[hi]/heightRatio) / NUM_BLOCKS + 1;
                  printf("Result found for size(%d,%d) in x,y: (%d,%d)\n", winWidths[wi], winHeights[hi], j, i);
-                 fc.resultWindows.push_back(Box(int(j * stepWidth * widthRatio),
-                                                int(i * stepHeight * heightRatio),
-                				int(winWidths[wi]), 
-						int(winHeights[hi])));
+                 fc.resultWindows.push_back(Box(int(j * kernelStepWidth * widthRatio),
+                                                int(i * kernelStepHeight * heightRatio),
+                                                int(winWidths[wi]),
+                                                int(winHeights[hi])));
             }
         }
     }
   }
   fc.saveResult();
 
+
   printf("Done.");
 }
-
-
