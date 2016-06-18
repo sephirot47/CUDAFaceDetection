@@ -10,4 +10,4 @@ export PATH=/Soft/cuda/7.5.18/bin:$PATH
 # Cambiar el shell
 #$ -S /bin/bash
 
-time nvprof --print-summary-per-gpu ./bin/face_detection.exe images/input.png
+time nvprof --print-summary-per-gpu ./bin/four-devices.exe images/input.png
