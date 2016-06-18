@@ -124,62 +124,21 @@ struct Box { int x,y,w,h; Box(int _x, int _y, int _w, int _h) { x=_x; y=_y; w=_w
 class FaceDetection
 {
 public:
-  Image *image;
   vector<Box> resultWindows;
+  Image *image;
 
   FaceDetection(char* imageFile)
   {
     image = new Image(imageFile);
   }
 
-  // Innefficient Vector's code
-  /*void saveResult()
+  // 0:   same grayscale
+  // 255: very different
+  uc getDiff(uc gray1, uc gray2)
   {
-      int boxStroke = 1;
-      printf("Saving result...\n");
+    return abs(gray1-gray2);
+  }
 
-      uc *result = new uc[image->width() * image->height() * 3 * sizeof(uc)];
-      for(int y = 0; y < image->height(); ++y)
-      {
-          for(int x = 0; x < image->width();  ++x)
-          {
-              Pixel p(x,y);
-              bool isBoundary = false;
-              for(Box b : resultWindows)
-              {
-                  if(belongsTo(p, b))
-                  {
-                      if(abs(x - b.x) <= boxStroke ||
-                         abs(y - b.y) <= boxStroke ||
-                         abs(x - (b.x + b.w - 1)) <= boxStroke ||
-                         abs(y - (b.y + b.h - 1)) <= boxStroke)
-                      {
-                          isBoundary = true;
-                      }
-                  }
-              }
-
-              int offset = (y * image->width() + x) * 3;
-              if(isBoundary)
-              {
-                  result[offset + 0] = 255 - image->getColor(p).r;
-                  result[offset + 1] = 255 - image->getColor(p).g;
-                  result[offset + 2] = 255 - image->getColor(p).b;
-              }
-
-              else
-              {
-                  result[offset + 0] = image->getColor(p).r;
-                  result[offset + 1] = image->getColor(p).g;
-                  result[offset + 2] = image->getColor(p).b;
-              }
-          }
-      }
-
-      stbi_write_bmp("output/result.bmp", image->width(), image->height(), 3, result);
-  }*/
-
-  // Efficient Oscar's code
   void saveResult() {
       printf("Saving result...\n");
 
@@ -234,7 +193,7 @@ void saveImage(uc *img, int x, int y, int width, int height, int imgWidth, const
     free(aux);
 }
 
-__device__ __host__ uc getWindowMeanGS(uc *img, int ox, int oy, int winWidth, int winHeight, int imgWidth) {
+uc getWindowMeanGS(uc *img, int ox, int oy, int winWidth, int winHeight, int imgWidth) {
     int sum = 0;
     for(int y = oy; y < oy + winHeight; ++y)
     {
@@ -247,6 +206,53 @@ __device__ __host__ uc getWindowMeanGS(uc *img, int ox, int oy, int winWidth, in
 
     return uc(sum / (winWidth * winHeight));
 }
+
+Color getWindowMeanColor(uc *img, int ox, int oy, int winWidth, int winHeight, int imgWidth) {
+
+    Color csum(0,0,0,0);
+    for(int y = oy; y < oy + winHeight; ++y)
+    {
+        for(int x = ox; x < ox + winWidth; ++x)
+        {
+            int offset = (y * imgWidth + x) * 3;
+            csum.r += img[offset + 0];
+            csum.g += img[offset + 1];
+            csum.b += img[offset + 2];
+        }
+    }
+
+    int npixels = winWidth * winHeight;
+    Color c(csum.r / npixels, csum.g / npixels, csum.b / npixels, 0);
+
+    return c;
+}
+
+int getSecondStageHeuristic(uc *img) {
+    int sumDiff    = 0;
+    int leftEye    = getWindowMeanGS(img, 2, 4, 9, 5,30);
+    int rightEye   = getWindowMeanGS(img,18, 4, 9, 5,30);
+    int upperNose  = getWindowMeanGS(img,11, 1, 6,13,30);
+    int lowerNose  = getWindowMeanGS(img,10,15, 9, 5,30);
+    int leftCheek  = getWindowMeanGS(img, 1,10, 8,10,30);
+    int rightCheek = getWindowMeanGS(img,19,10, 8,10,30);
+    int mouth      = getWindowMeanGS(img, 8,21,13, 5,30);
+
+    sumDiff += leftEye;
+    sumDiff += rightEye;
+    sumDiff += abs(leftEye - rightEye); // simmetry
+
+    sumDiff += 255-upperNose;
+    sumDiff += abs(125-lowerNose);
+
+    sumDiff += 255-leftCheek;
+    sumDiff += 255-rightCheek;
+    sumDiff += abs(leftCheek - rightCheek); // simmetry
+
+    sumDiff += mouth; // mouth
+
+    return sumDiff;
+}
+
 
 void resize_seq(uc *src, int srcx, int srcy, int srcw, int srch, int srcTotalWidth, //x,y,width,height
                 uc *dst, int dstx, int dsty, int dstw, int dsth, int dstTotalWidth) //x,y,width,height
@@ -273,168 +279,122 @@ void resize_seq(uc *src, int srcx, int srcy, int srcw, int srch, int srcTotalWid
     }
 }
 
-// Resize always to a smaller size -> downsample
-__device__ void resize(uc *src, int srcx, int srcy, int srcw, int srch, int srcTotalWidth, //x,y,width,height
-                       uc *dst, int dstx, int dsty, int dstw, int dsth, int dstTotalWidth) //x,y,width,height
-{
-    float bw = float(srcw) / dstw;
-    float bh = float(srch) / dsth;
 
-    int size = dsth * dstw;
-    for(int i = threadIdx.x; i < size; i += NUM_THREADS)
-    {
-        int dx = dstx + (i % dstw);
-        int dy = dsty + (i / dstw);
+float getHistogram(uc *img, int ox, int oy, int width, int height, int imgWidth, float histogram[256]) {
 
-        uc mean = getWindowMeanGS(src,
-                                  srcx + ceil(dx*bw), srcy + ceil(dy*bh), //x, y
-                                  floor(bw), floor(bh),                   //width height
-                                  srcTotalWidth                           //totalWidth
-                                  );
-
-        dst[dy * dstTotalWidth + dx] = mean;
-    }
+  float npixels = width * height;
+  float unitProb = 1.0f/npixels;
+  float maxfreq = 0.0f;
+  for(int i = 0; i < 256; ++i) histogram[i] = 0;
+  for(int y = oy; y < oy + height; ++y)
+  {
+      for(int x = ox; x < ox + width; ++x)
+      {
+          int offset = y * imgWidth + x;
+          uc v = img[offset];
+          histogram[v] += unitProb;
+      if(histogram[v] > maxfreq) maxfreq = histogram[v];
+      }
+  }
+  return maxfreq;
 }
 
+float histogramHeuristic(float histogram[256], float maxFreq)
+{
+    //Worst case: 5.4;
+    float h = 0;
+    h += (histogram[10] / maxFreq);
+    h += (histogram[75] / maxFreq);
+    h += 3*fabs(0.8f - (histogram[190] / maxFreq));
+    h += (histogram[240] / maxFreq);
+    return h;
+}
 
-__device__ void getHistogram(uc *img, int ox, int oy, int width, int height, int imgWidth, float histogram[256]) {
-
-    float npixels = width * height;
-    float unitProb = 1.0f/npixels;
-
-    if(threadIdx.x < 256) histogram[threadIdx.x] = 0;
-
-    for(int i = threadIdx.x; i < npixels; i += NUM_THREADS)
+void toBlackAndWhite(uc *img, int ox, int oy, int width, int height, int imgWidth)
+{
+    for(int y = oy; y < oy + height; ++y)
     {
-        int wx = i % width;
-        int wy = i / width;
-        int offset = (oy + wy) * imgWidth + (ox + wx);
-        uc v = img[offset];
-        atomicAdd(&histogram[v], unitProb);
+        for(int x = ox; x < ox + width; ++x)
+        {
+            int offset = y * imgWidth + x;
+            uc v = img[offset];
+            img[offset] = v > 200 ? 255 : 0;
+        }
     }
 }
 
 // Increase contrast
-__device__ void histogramEqualization(uc *img, int ox, int oy, int width, int height, int imgWidth)
+void histogramEqualization(uc *img, int ox, int oy, int width, int height, int imgWidth)
 {
-    __shared__ float histogram[256];
-    __shared__ float accumulatedProbs[256];
-    
+    float histogram[256];
     getHistogram(img, ox, oy, width, height, imgWidth, histogram);
-    
-    if(threadIdx.x == 0)
-    { 
-        accumulatedProbs[0] = histogram[0];
-    	for(int i = 1; i < 256; ++i)
-            accumulatedProbs[i] = accumulatedProbs[i-1] + histogram[i];
-    }
-    __syncthreads();
-    
-    
-    int size = width * height;
-    for(int i = threadIdx.x; i < size; i += NUM_THREADS)
+
+    float accumulatedProbs[256];
+    accumulatedProbs[0] = histogram[0];
+    for(int i = 1; i < 256; ++i) accumulatedProbs[i] = accumulatedProbs[i-1] + histogram[i];
+
+    for(int y = oy; y < oy + height; ++y)
     {
-	 int wx = i % width;
-	 int wy = i / width;
-	 int offset = (oy + wy) * imgWidth + (ox + wx);
-    	 uc v = img[offset];
-         img[offset] = floor(255 * accumulatedProbs[v]);
+        for(int x = ox; x < ox + width; ++x)
+        {
+            int offset = y * imgWidth + x;
+            uc v = img[offset];
+            img[offset] = floor(255 * accumulatedProbs[v]);
+        }
     }
 }
 
-__device__ void toBlackAndWhite(uc *img, int ox, int oy, int width, int height, int imgWidth)
-{
-    int size = width * height;
-    for(int i = threadIdx.x; i < size; i += NUM_THREADS)
-    {
-        int wx = i % width;
-        int wy = i / width;
-        int offset = (oy + wy) * width + (ox + wx);
-        uc v = img[offset];
-        img[offset] = v > 200 ? 255 : 0;
-    }
-}
-
-__device__ uc getFirstStageHeuristic(uc *img) {
+uc getFirstStageHeuristic(uc *img) {
     int v = img[22] - (img[19]+img[20]+img[24]+img[25]+img[58])/5;
     return v < 0 ? 0 : v;
 }
 
 // Find edges in horizontal direction
-__device__ void sobelEdgeDetection(uc *img, int ox, int oy,  int winWidth, int winHeight, int imgWidth, uc *sobelImg)
+void sobelEdgeDetection(uc *img, int ox, int oy, int winWidth, int winHeight, int imgWidth, uc *sobelImg)
 {
     uc threshold = 24;
 
-    int size = winWidth * winHeight;
-    for (int i = threadIdx.x; i < size; i+=NUM_THREADS)
+    for(int y = oy; y < oy + winHeight; ++y)
     {
-        int wx = i % winWidth;
-        int wy = i / winWidth;
-        int winOffset = wy * winWidth + wx;
+        for(int x = ox; x < ox + winWidth; ++x)
+        {
+            int imgOffset = y * imgWidth + x;
+            int winOffset = (y-oy) * winWidth + (x-ox);
 
-        int x = ox + wx;
-        int y = oy + wy;
-        int imgOffset = y * imgWidth + x;
-
-        if (y == oy or y == oy+winHeight-1 or x == ox or x == ox+winWidth-1)
-            sobelImg[winOffset] = 255;
-        else {
-            uc upperLeft  = img[imgOffset - imgWidth - 1];
-            uc upperRight = img[imgOffset - imgWidth + 1];
-            uc up         = img[imgOffset - imgWidth];
-            uc down       = img[imgOffset + imgWidth];
-            uc lowerLeft  = img[imgOffset + imgWidth - 1];
-            uc lowerRight = img[imgOffset + imgWidth + 1];
-
-            int sum = -upperLeft - upperRight - 2*up + 2*down + lowerLeft + lowerRight;
-            if(sum >= threshold)
-                sobelImg[winOffset] = 0;
-            else
+            if (y == oy or y == oy+winHeight-1 or x == ox or x == ox+winWidth-1)
                 sobelImg[winOffset] = 255;
+            else {
+                uc upperLeft  = img[imgOffset - imgWidth - 1];
+                uc upperRight = img[imgOffset - imgWidth + 1];
+                uc up         = img[imgOffset - imgWidth];
+                uc down       = img[imgOffset + imgWidth];
+                uc lowerLeft  = img[imgOffset + imgWidth - 1];
+                uc lowerRight = img[imgOffset + imgWidth + 1];
+
+                int sum = -upperLeft - upperRight - 2*up + 2*down + lowerLeft + lowerRight;
+
+                if(sum >= threshold)
+                    sobelImg[winOffset] = 0;
+                else
+                    sobelImg[winOffset] = 255;
+            }
         }
     }
 }
 
-__device__ int getSecondStageHeuristic(uc *img) {
-    int sumDiff    = 0;
-    int leftEye    = getWindowMeanGS(img, 2, 4, 9, 5,30);
-    int rightEye   = getWindowMeanGS(img,18, 4, 9, 5,30);
-    int upperNose  = getWindowMeanGS(img,11, 1, 6,13,30);
-    int lowerNose  = getWindowMeanGS(img,10,15, 9, 5,30);
-    int leftCheek  = getWindowMeanGS(img, 1,10, 8,10,30);
-    int rightCheek = getWindowMeanGS(img,19,10, 8,10,30);
-    int mouth      = getWindowMeanGS(img, 8,21,13, 5,30);
 
-    sumDiff += leftEye;
-    sumDiff += rightEye;
-    sumDiff += abs(leftEye - rightEye); // simmetry
-
-    sumDiff += 255-upperNose;
-    sumDiff += abs(125-lowerNose);
-
-    sumDiff += 255-leftCheek;
-    sumDiff += 255-rightCheek;
-    sumDiff += abs(leftCheek - rightCheek); // simmetry
-
-    sumDiff += mouth; // mouth
-
-    return sumDiff;
-}
-
-__global__ void detectFaces(uc *img, int winWidth, int winHeight, uc  *resultMatrix)
+void detectFaces(uc *img, int winWidth, int winHeight, uc  *resultMatrix)
 {
     int xstep = (IMG_WIDTH - winWidth) / NUM_BLOCKS + 1;
     int ystep = (IMG_HEIGHT - winHeight) / NUM_BLOCKS + 1;
-    if(threadIdx.x == 0 && blockIdx.x == 0 && blockIdx.y == 0)
-    {
-    	//printf("Kernel width:%i, height:%i\n", winWidth, winHeight);
-        printf("step: %d\n", xstep);
-    }
-
-    // Window origin
-    int x = blockIdx.x * xstep;
-    int y = blockIdx.y * ystep;
-    int blockId = blockIdx.y * NUM_BLOCKS + blockIdx.x;
+    printf("Kernel width:%i, height:%i\n", winWidth, winHeight);
+    printf("step: %d\n", xstep);
+    
+    for(int x = 0 ; x < winWidth; x += xstep) {
+    for(int y = 0;  y < winHeight; y += ystep) {
+    
+    
+    int blockId = y * (IMG_WIDTH-winWidth) / (xstep-1) + x;
 
     if(x + winWidth > IMG_WIDTH || y + winHeight > IMG_HEIGHT)
     {
@@ -443,69 +403,50 @@ __global__ void detectFaces(uc *img, int winWidth, int winHeight, uc  *resultMat
     }
 
     // FIRST HEURISTIC
-    __shared__ uc window30x30[30*30];
-    resize(img,
+    uc window30x30[30*30];
+    resize_seq(img,
            x, y, winWidth, winHeight, IMG_WIDTH,
            window30x30,
            0, 0, 9, 9, 9);
-    __syncthreads();
 
     histogramEqualization(window30x30, 0, 0, 9, 9, 9);
-    __syncthreads();
     
-    __shared__ uc hv1;
-    if(threadIdx.x == 0) {
-        hv1 = getFirstStageHeuristic(window30x30);
-    }
-    __syncthreads();
+    uc hv1;
+    hv1 = getFirstStageHeuristic(window30x30);
 
     if (hv1 >= THRESH_9x9)
     {
         // SECOND HEURISTIC
-        __shared__ uc sobelImg[200*200];
+        uc sobelImg[200*200];
         sobelEdgeDetection(img, x, y, winWidth, winHeight, IMG_WIDTH, sobelImg);
-        __syncthreads();
 
-        resize(sobelImg,
-               0, 0, winWidth, winHeight, winWidth,
-               window30x30,
-               0, 0, 30, 30, 30);
-        __syncthreads();
+        resize_seq(sobelImg,
+                   0, 0, winWidth, winHeight, winWidth,
+                   window30x30,
+                   0, 0, 30, 30, 30);
 
         toBlackAndWhite(window30x30, 0, 0, 30, 30, 30);
-        __syncthreads();
 
-        if(threadIdx.x == 0) {
-            int hv2 = getSecondStageHeuristic(window30x30);
+        int hv2 = getSecondStageHeuristic(window30x30);
 
-            if (hv2 <= THRESH_30x30)
-            {
-		printf("Face detected with heuristic: %i\n", hv2);
-                // Save result! We detected a face yayy
-                resultMatrix[blockId] = 1;
-            }
-            else resultMatrix[blockId] = 0;
+        if (hv2 <= THRESH_30x30)
+        {
+	   printf("Face detected with heuristic: %i\n", hv2);
+	   // Save result! We detected a face yayy
+	   resultMatrix[blockId] = 1;
         }
+        else resultMatrix[blockId] = 0;
     }
     else resultMatrix[blockId] = 0;
+    }
+    }
 }
 
-void CheckCudaError(int line) {
-  cudaError_t error;
-  error = cudaGetLastError();
-  if (error) {
-    printf("(ERROR) - %s in %s at line %d\n", cudaGetErrorString(error), __FILE__, line);
-    exit(EXIT_FAILURE);
-  }
-}
-
-#define CE() { CheckCudaError(__LINE__); }
 
 int main(int argc, char** argv)
 {
   cout << "Usage: " << argv[0] << " <image file name>" << endl;
   for (int i = 0; i < argc; ++i) { cout << argv[i] << endl; }
-
 
   //Read input
   FaceDetection fc(argv[1]);
@@ -535,21 +476,7 @@ int main(int argc, char** argv)
          );
   //
 
-  int deviceCount;
-  cudaGetDeviceCount(&deviceCount);
-  if (deviceCount < 4) { printf("Not enough GPUs\n"); exit(-1); }
 
-
-  //Obtiene Memoria [pinned] en el host
-  //cudaMallocHost((float**)&h_x, numBytes);
-  //cudaMallocHost((float**)&h_y, numBytes);
-  //cudaMallocHost((float**)&H_y, numBytes);   // Solo se usa para comprobar el resultado
-
-
-  // Get device memory
-
-  dim3 dimGrid(NUM_BLOCKS, NUM_BLOCKS, 1);
-  dim3 dimBlock(NUM_THREADS, 1, 1);
   int winWidths[] = {35, 40, 45, 50, 55, 60, 65, 75, 85, 95, 105, 115, 125, 140, 150, 160, 170, 180, 190};
   int winHeights[] = {35, 40, 45, 50, 55, 60, 65, 75, 85, 95, 105, 115, 125, 140, 150, 160, 170, 180, 190};
 
@@ -561,69 +488,22 @@ int main(int argc, char** argv)
   const int numWindows = numWindowsWidth * numWindowsHeight;
   uc *h_resultMatrix[numWindows];
   for(int i = 0; i < numWindows; ++i)
-      h_resultMatrix[i]= (uc*) malloc(numBytesResultMatrix);
+      h_resultMatrix[i]= (uc*) malloc(numBytesResultMatrix * sizeof(uc));
   
-  uc *d_imageGS[NUM_DEVICES], *d_resultMatrix[NUM_DEVICES];
-  for(int i = 0; i < NUM_DEVICES; ++i)
-  {
-      printf("Getting memory in device %d...\n", i);
-      cudaSetDevice(i);
-      cudaMalloc((uc**)&d_imageGS[i], numBytesImage); CE();
-      cudaMalloc((uc**)&d_resultMatrix[i], numBytesResultMatrix); CE();
-  }
-
-  // Copy data from host to device, execute kernel, copy data from device to host
-  for(int i = 0; i < NUM_DEVICES; ++i)
-  {
-      printf("Getting memory in device %d...\n", i);
-      cudaSetDevice(i);
-      cudaMalloc((uc**)&d_imageGS[i], numBytesImage); CE();
-      cudaMalloc((uc**)&d_resultMatrix[i], numBytesResultMatrix); CE();
-  }
-
-  cudaEvent_t E0, E1;
-  cudaEventCreate(&E0);
-  cudaEventCreate(&E1);
- 
   float widthRatio =  float(fc.image->width())/IMG_WIDTH;
   float heightRatio =  float(fc.image->height())/IMG_HEIGHT;
-  const int windowsPerDevice = numWindows / NUM_DEVICES;
-
-  cudaEventRecord(E0, 0);
-  cudaEventSynchronize(E0);
 
   printf("Num windows: %i\n", numWindows);
-  printf("Windows per device: %i\n", windowsPerDevice);
-  for(int i = 0; i < NUM_DEVICES; ++i)
+  for(int i = 0; i < numWindows; ++i)
   {
-      cudaSetDevice(i);
-      for(int j = 0; j < windowsPerDevice; ++j)
-      {
-	      int index = (i*windowsPerDevice + j);
-	      int wi = index / numWindowsWidth;
-	      int hi = index % numWindowsHeight;
-              printf("\n");
-	      printf("index: %i\n", index);
-	      printf("wi: %i, hi: %i\n", wi, hi);
-              printf("width: %i, height:%i\n", winWidths[wi], winHeights[hi]);
-              printf("Copying matrices from host to device %d...\n", i);
-              cudaMemcpyAsync(d_imageGS[i], h_imageGS, numBytesImage, cudaMemcpyHostToDevice); //CE();
- 	      printf("Executing kernel detectFaces on device %d...\n", i);
-              detectFaces<<<dimGrid, dimBlock>>>(d_imageGS[i], winWidths[wi] / widthRatio, winHeights[hi] / heightRatio, d_resultMatrix[i]); //CE();
-              //detectFaces<<<dimGrid, dimBlock>>>(d_imageGS[i], winWidths[wi] / widthRatio, winWidths[wi] / widthRatio, d_resultMatrix[i]); //CE();
- 	      printf("Retrieving resultMatrix from device %d to host...\n", i);
-	      cudaMemcpyAsync(h_resultMatrix[index], d_resultMatrix[i], numBytesResultMatrix, cudaMemcpyDeviceToHost); //CE();
-     }
+      int wi = i / numWindowsWidth;
+      int hi = i % numWindowsHeight;
+      printf("\n");
+      printf("wi: %i, hi: %i\n", wi, hi);
+      printf("width: %i, height:%i\n", winWidths[wi], winHeights[hi]);
+      printf("Executing detectFaces...\n");
+      detectFaces(h_imageGS, winWidths[wi] / widthRatio, winHeights[hi] / heightRatio, h_resultMatrix[i]);
   }
-
-  for(int i = 0; i < NUM_DEVICES; ++i) { cudaSetDevice(i); cudaDeviceSynchronize(); }
-
-  cudaEventRecord(E1, 0);
-  cudaEventSynchronize(E1);
-
-  float elapsedTime;
-  cudaEventElapsedTime(&elapsedTime,  E0, E1);
-  printf("Kernel elapsed time: %4.6f\n", elapsedTime);
 
   // Process results
   for(int k = 0; k < numWindows; ++k)
@@ -636,11 +516,11 @@ int main(int argc, char** argv)
 	    {
 	         int wi = k / numWindowsWidth;
 	         int hi = k % numWindowsHeight;
-                 int kernelStepWidth = (IMG_WIDTH - winWidths[wi]/widthRatio) / NUM_BLOCKS + 1;
-                 int kernelStepHeight = (IMG_HEIGHT - winHeights[hi]/heightRatio) / NUM_BLOCKS + 1;
+                 int stepWidth = (IMG_WIDTH - winWidths[wi]/widthRatio) / NUM_BLOCKS + 1;
+                 int stepHeight = (IMG_HEIGHT - winHeights[hi]/heightRatio) / NUM_BLOCKS + 1;
                  printf("Result found for size(%d,%d) in x,y: (%d,%d)\n", winWidths[wi], winHeights[hi], j, i);
-                 fc.resultWindows.push_back(Box(int(j * kernelStepWidth * widthRatio),
-                                                int(i * kernelStepHeight * heightRatio),
+                 fc.resultWindows.push_back(Box(int(j * stepWidth * widthRatio),
+                                                int(i * stepHeight * heightRatio),
                 				int(winWidths[wi]), 
 						int(winHeights[hi])));
             }
@@ -648,14 +528,6 @@ int main(int argc, char** argv)
     }
   }
   fc.saveResult();
-
-
-  // Free device memory
-  printf("Freeing device memory...\n");
-  for(int i = 0; i < NUM_DEVICES; ++i)
-  {
-    cudaSetDevice(i); cudaFree(d_imageGS[i]); cudaFree(d_resultMatrix[i]);
-  }
 
   printf("Done.");
 }

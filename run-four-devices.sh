@@ -1,13 +1,13 @@
 #!/bin/bash
 
-make ultraclean && make 
+make
 if [ "$?" != "0" ] ; then
 	echo "COMPILATION ERROR!"
 	exit 1
 fi
 
 INPUT=$1
-if ! [ -f $INPUT ]
+if ! [ -f $INPUT ] || [ -z $INPUT ]
 then
 	echo "ERROR: The image does not exist."
 	exit 1
@@ -23,4 +23,4 @@ else
 	cp $INPUT images/input.png
 fi
 
-qsub -l cuda job.sh 
+qsub -l cuda job-four-devices.sh 

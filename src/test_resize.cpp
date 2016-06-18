@@ -112,52 +112,6 @@ public:
     return abs(gray1-gray2);
   }
 
-  /*void saveResult()
-  {
-      int boxStroke = 1;
-      printf("Saving result...\n");
-
-      uc *result = new uc[container->width() * container->height() * 3 * sizeof(uc)];
-      for(int y = 0; y < container->height(); ++y)
-      {
-          for(int x = 0; x < container->width();  ++x)
-          {
-              Pixel p(x,y);
-              bool isBoundary = false;
-              for(Box b : resultWindows)
-              {
-                  if(belongsTo(p, b))
-                  {
-                      if(abs(x - b.x) <= boxStroke ||
-                         abs(y - b.y) <= boxStroke ||
-                         abs(x - (b.x + b.w - 1)) <= boxStroke ||
-                         abs(y - (b.y + b.h - 1)) <= boxStroke)
-                      {
-                          isBoundary = true;
-                      }
-                  }
-              }
-
-              int offset = (y * container->width() + x) * 3;
-              if(isBoundary)
-              {
-                  result[offset + 0] = 255 - container->getColor(p).r;
-                  result[offset + 1] = 255 - container->getColor(p).g;
-                  result[offset + 2] = 255 - container->getColor(p).b;
-              }
-              else
-              {
-                  result[offset + 0] = container->getColor(p).r;
-                  result[offset + 1] = container->getColor(p).g;
-                  result[offset + 2] = container->getColor(p).b;
-              }
-          }
-      }
-
-      stbi_write_bmp("output/result.bmp", container->width(), container->height(), 3, result);
-      //saveImage(result, 0, 0, container->width(), container->height(), container->width()*3, );
-  }*/
-
   void saveResult() {
       printf("Saving result...\n");
 
