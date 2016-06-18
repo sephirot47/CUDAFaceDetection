@@ -3,6 +3,7 @@
 *.gpu
 *.ptx
 *.cubin
+bin/*
 output/*
 *.fatbin
 *.o*

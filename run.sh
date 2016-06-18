@@ -7,6 +7,12 @@ if [ "$?" != "0" ] ; then
 fi
 
 INPUT=$1
+if ! [ -f $INPUT ]
+then
+	echo "ERROR: The image does not exist."
+	exit 1
+fi 
+
 WIDTH=$( file $INPUT | cut -d"," -f2 | cut -d"," -f1 | cut -d"x" -f1 | cut -d" " -f2)
 HEIGHT=$( file $INPUT | cut -d"," -f2 | cut -d"," -f1 | cut -d"x" -f2 | cut -d" " -f2)
 if [ $HEIGHT -lt 1024 ] && [ $HEIGHT -lt $WIDTH ]; then

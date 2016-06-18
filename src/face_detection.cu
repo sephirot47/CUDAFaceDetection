@@ -16,8 +16,8 @@
 #define NUM_DEVICES 4
 
 //Optimal values 40, 550
-#define THRESH_9x9 30     //Bigger = more restrictive
-#define THRESH_30x30 550  //Bigger = less restrictive
+#define THRESH_9x9 20     //Bigger = more restrictive
+#define THRESH_30x30 475 //Bigger = less restrictive
 
 #include "../include/stbi.h"
 #include "../include/stbi_write.h"
@@ -426,7 +426,10 @@ __global__ void detectFaces(uc *img, int winWidth, int winHeight, uc  *resultMat
     int xstep = (IMG_WIDTH - winWidth) / NUM_BLOCKS + 1;
     int ystep = (IMG_HEIGHT - winHeight) / NUM_BLOCKS + 1;
     if(threadIdx.x == 0 && blockIdx.x == 0 && blockIdx.y == 0)
+    {
+    	//printf("Kernel width:%i, height:%i\n", winWidth, winHeight);
         printf("step: %d\n", xstep);
+    }
 
     // Window origin
     int x = blockIdx.x * xstep;
@@ -477,6 +480,7 @@ __global__ void detectFaces(uc *img, int winWidth, int winHeight, uc  *resultMat
 
             if (hv2 <= THRESH_30x30)
             {
+		printf("Face detected with heuristic: %i\n", hv2);
                 // Save result! We detected a face yayy
                 resultMatrix[blockId] = 1;
             }
@@ -546,15 +550,15 @@ int main(int argc, char** argv)
 
   dim3 dimGrid(NUM_BLOCKS, NUM_BLOCKS, 1);
   dim3 dimBlock(NUM_THREADS, 1, 1);
-  int winSizes[] = {35, 180, 30, 45,
-                    80, 120, 40, 55,
-                    100, 90, 50, 65,
-                    150, 45, 60, 70
-                   };
+  int winWidths[] = {35, 40, 45, 50, 55, 60, 65, 75, 85, 95, 105, 115, 125, 140, 150, 160, 170, 180, 190};
+  int winHeights[] = {35, 40, 45, 50, 55, 60, 65, 75, 85, 95, 105, 115, 125, 140, 150, 160, 170, 180, 190};
 
   printf("Getting memory in the host to allocate resultMatrix...\n");
   int numBytesResultMatrix = NUM_BLOCKS * NUM_BLOCKS * sizeof(uc);
-  const int numWindows = sizeof(winSizes) / sizeof(int);
+
+  const int numWindowsWidth  = (sizeof(winWidths) / sizeof(int));
+  const int numWindowsHeight = (sizeof(winHeights) / sizeof(int));
+  const int numWindows = numWindowsWidth * numWindowsHeight;
   uc *h_resultMatrix[numWindows];
   for(int i = 0; i < numWindows; ++i)
       h_resultMatrix[i]= (uc*) malloc(numBytesResultMatrix);
@@ -588,18 +592,27 @@ int main(int argc, char** argv)
   cudaEventRecord(E0, 0);
   cudaEventSynchronize(E0);
 
+  printf("Num windows: %i\n", numWindows);
+  printf("Windows per device: %i\n", windowsPerDevice);
   for(int i = 0; i < NUM_DEVICES; ++i)
   {
+      cudaSetDevice(i);
       for(int j = 0; j < windowsPerDevice; ++j)
       {
-	      int index = i*windowsPerDevice + j;
-	      cudaSetDevice(i);
-	      printf("Copying matrices from host to device %d...\n", i);
-	      cudaMemcpyAsync(d_imageGS[i], h_imageGS, numBytesImage, cudaMemcpyHostToDevice); //CE();
-	      printf("Executing kernel detectFaces on device %d...\n", i);
-	      detectFaces<<<dimGrid, dimBlock>>>(d_imageGS[i], winSizes[index] / widthRatio, winSizes[index] / heightRatio, d_resultMatrix[i]); //CE();
-	      printf("Retrieving resultMatrix from device %d to host...\n", i);
-	      cudaMemcpy(h_resultMatrix[index], d_resultMatrix[i], numBytesResultMatrix, cudaMemcpyDeviceToHost); //CE();
+	      int index = (i*windowsPerDevice + j);
+	      int wi = index / numWindowsWidth;
+	      int hi = index % numWindowsHeight;
+              printf("\n");
+	      printf("index: %i\n", index);
+	      printf("wi: %i, hi: %i\n", wi, hi);
+              printf("width: %i, height:%i\n", winWidths[wi], winHeights[hi]);
+              printf("Copying matrices from host to device %d...\n", i);
+              cudaMemcpyAsync(d_imageGS[i], h_imageGS, numBytesImage, cudaMemcpyHostToDevice); //CE();
+ 	      printf("Executing kernel detectFaces on device %d...\n", i);
+              detectFaces<<<dimGrid, dimBlock>>>(d_imageGS[i], winWidths[wi] / widthRatio, winHeights[hi] / heightRatio, d_resultMatrix[i]); //CE();
+              //detectFaces<<<dimGrid, dimBlock>>>(d_imageGS[i], winWidths[wi] / widthRatio, winWidths[wi] / widthRatio, d_resultMatrix[i]); //CE();
+ 	      printf("Retrieving resultMatrix from device %d to host...\n", i);
+	      cudaMemcpyAsync(h_resultMatrix[index], d_resultMatrix[i], numBytesResultMatrix, cudaMemcpyDeviceToHost); //CE();
      }
   }
 
@@ -619,10 +632,17 @@ int main(int argc, char** argv)
         {
         for(int j = 0; j < NUM_BLOCKS; ++j)
             {
-            if (h_resultMatrix[k][i * NUM_BLOCKS + j] == 1) {
-                int kernelStep = (IMG_WIDTH - winSizes[k]/widthRatio) / NUM_BLOCKS + 1;
-                printf("Result found for size(%d,%d) in x,y: (%d,%d)\n", winSizes[k], winSizes[k], j, i);
-                fc.resultWindows.push_back(Box(int(j * kernelStep * widthRatio), int(i * kernelStep * heightRatio),int(winSizes[k]), int(winSizes[k])));
+	    if (h_resultMatrix[k][i * NUM_BLOCKS + j] == 1) 
+	    {
+	         int wi = k / numWindowsWidth;
+	         int hi = k % numWindowsHeight;
+                 int kernelStepWidth = (IMG_WIDTH - winWidths[wi]/widthRatio) / NUM_BLOCKS + 1;
+                 int kernelStepHeight = (IMG_HEIGHT - winHeights[hi]/heightRatio) / NUM_BLOCKS + 1;
+                 printf("Result found for size(%d,%d) in x,y: (%d,%d)\n", winWidths[wi], winHeights[hi], j, i);
+                 fc.resultWindows.push_back(Box(int(j * kernelStepWidth * widthRatio),
+                                                int(i * kernelStepHeight * heightRatio),
+                				int(winWidths[wi]), 
+						int(winHeights[hi])));
             }
         }
     }
