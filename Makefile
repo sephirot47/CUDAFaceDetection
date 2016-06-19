@@ -4,32 +4,34 @@ NVCC        = $(CUDA_HOME)/bin/nvcc
 NVCC_FLAGS  = -O3 -I$(CUDA_HOME)/include -arch=sm_20 -I$(CUDA_HOME)/sdk/CUDALibraries/common/inc
 LD_FLAGS    = -lcudart -Xlinker -rpath,$(CUDA_HOME)/lib64 -I$(CUDA_HOME)/sdk/CUDALibraries/common/lib
 
-default: bin/sequential.exe bin/one-device.exe bin/four-devices.exe bin/four-devices-pinned.exe bin/one-device-pinned.exe
+default: bin/face_detect_seq.exe bin/face_detect_1gpu.exe bin/face_detect_4gpu.exe bin/face_detect_1gpu_pin.exe bin/face_detect_4gpu_pin.exe
+
+seq: bin/face_detect_seq.exe
 
 bin/stbi.o: src/stbi.cpp
 	$(NVCC) -std=c++11 -c src/stbi.cpp -o bin/stbi.o
 
-bin/sequential.o: src/sequential.cu
-	$(NVCC) -std=c++11 -c -o $@ src/sequential.cu $(NVCC_FLAGS)
-bin/one-device.o: src/one-device.cu
-	$(NVCC) -std=c++11 -c -o $@ src/one-device.cu $(NVCC_FLAGS)
-bin/four-devices.o: src/four-devices.cu
-	$(NVCC) -std=c++11 -c -o $@ src/four-devices.cu $(NVCC_FLAGS)
-bin/four-devices-pinned.o: src/four-devices-pinned.cu
-	$(NVCC) -std=c++11 -c -o $@ src/four-devices-pinned.cu $(NVCC_FLAGS)
-bin/one-device-pinned.o: src/one-device-pinned.cu
-	$(NVCC) -std=c++11 -c -o $@ src/one-device-pinned.cu $(NVCC_FLAGS)
+bin/face_detect_seq.o: src/face_detect_seq.cpp
+	g++ -std=c++11 -c -o $@ src/face_detect_seq.cpp
+bin/face_detect_1gpu.o: src/face_detect_1gpu.cu
+	$(NVCC) -std=c++11 -c -o $@ src/face_detect_1gpu.cu $(NVCC_FLAGS)
+bin/face_detect_4gpu.o: src/face_detect_4gpu.cu
+	$(NVCC) -std=c++11 -c -o $@ src/face_detect_4gpu.cu $(NVCC_FLAGS)
+bin/face_detect_1gpu_pin.o: src/face_detect_1gpu_pin.cu
+	$(NVCC) -std=c++11 -c -o $@ src/face_detect_1gpu_pin.cu $(NVCC_FLAGS)
+bin/face_detect_4gpu_pin.o: src/face_detect_4gpu_pin.cu
+	$(NVCC) -std=c++11 -c -o $@ src/face_detect_4gpu_pin.cu $(NVCC_FLAGS)
 
-bin/sequential.exe: bin/stbi.o bin/sequential.o
-	$(NVCC) bin/stbi.o bin/sequential.o -o bin/sequential.exe $(LD_FLAGS)
-bin/one-device.exe: bin/stbi.o bin/one-device.o
-	$(NVCC) bin/stbi.o bin/one-device.o -o bin/one-device.exe $(LD_FLAGS)
-bin/four-devices.exe: bin/stbi.o bin/four-devices.o
-	$(NVCC) bin/stbi.o bin/four-devices.o -o bin/four-devices.exe $(LD_FLAGS)
-bin/four-devices-pinned.exe: bin/stbi.o bin/four-devices-pinned.o
-	$(NVCC) bin/stbi.o bin/four-devices.o -o bin/four-devices-pinned.exe $(LD_FLAGS)
-bin/one-device-pinned.exe: bin/stbi.o bin/one-device-pinned.o
-	$(NVCC) bin/stbi.o bin/one-device-pinned.o -o bin/one-device-pinned.exe $(LD_FLAGS)
+bin/face_detect_seq.exe: bin/stbi.o bin/face_detect_seq.o
+	g++ -std=c++11 bin/stbi.o bin/face_detect_seq.o -o bin/face_detect_seq.exe
+bin/face_detect_1gpu.exe: bin/stbi.o bin/face_detect_1gpu.o
+	$(NVCC) bin/stbi.o bin/face_detect_1gpu.o -o bin/face_detect_1gpu.exe $(LD_FLAGS)
+bin/face_detect_4gpu.exe: bin/stbi.o bin/face_detect_4gpu.o
+	$(NVCC) bin/stbi.o bin/face_detect_4gpu.o -o bin/face_detect_4gpu.exe $(LD_FLAGS)
+bin/face_detect_1gpu_pin.exe: bin/stbi.o bin/face_detect_1gpu_pin.o
+	$(NVCC) bin/stbi.o bin/face_detect_1gpu_pin.o -o bin/face_detect_1gpu_pin.exe $(LD_FLAGS)
+bin/face_detect_4gpu_pin.exe: bin/stbi.o bin/face_detect_4gpu_pin.o
+	$(NVCC) bin/stbi.o bin/face_detect_4gpu.o -o bin/face_detect_4gpu_pin.exe $(LD_FLAGS)
 
 clean:
 	rm -rf *.o bin/*
