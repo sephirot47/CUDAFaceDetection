@@ -489,6 +489,7 @@ int main(int argc, char** argv)
     for(int i = 0; i < NUM_DEVICES; ++i)
     {
 	cudaSetDevice(i);
+	cudaMemcpyAsync(d_imageGS[i], h_imageGS, numBytesImage, cudaMemcpyHostToDevice); //CE();
 	for(int j = 0; j < windowsPerDevice; ++j)
 	{
 	    int index = (i*windowsPerDevice + j);
@@ -499,7 +500,6 @@ int main(int argc, char** argv)
 	    printf("wi: %i, hi: %i\n", wi, hi);
 	    printf("width: %i, height:%i\n", winWidths[wi], winHeights[hi]);
 	    printf("Copying matrices from host to device %d...\n", i);
-	    cudaMemcpyAsync(d_imageGS[i], h_imageGS, numBytesImage, cudaMemcpyHostToDevice); //CE();
 	    printf("Executing kernel detectFaces on device %d...\n", i);
 	    detectFaces<<<dimGrid, dimBlock>>>(d_imageGS[i], winWidths[wi] / widthRatio, winHeights[hi] / heightRatio, d_resultMatrix[i]); //CE();
 	    printf("Retrieving resultMatrix from device %d to host...\n", i);
