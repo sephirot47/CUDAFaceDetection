@@ -23,4 +23,4 @@ else
 	cp $INPUT images/input.png
 fi
 
-qsub -l cuda job-four-devices-pinned.sh 
+qsub -l cuda job.sh face_detect_1gpu

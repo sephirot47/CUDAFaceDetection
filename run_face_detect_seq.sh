@@ -1,6 +1,6 @@
 #!/bin/bash
 
-make 
+make
 if [ "$?" != "0" ] ; then
 	echo "COMPILATION ERROR!"
 	exit 1
@@ -23,4 +23,4 @@ else
 	cp $INPUT images/input.png
 fi
 
-qsub -l cuda job-sequential.sh 
+qsub -l cuda job.sh face_detect_seq
