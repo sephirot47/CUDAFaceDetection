@@ -10,4 +10,4 @@ export PATH=/Soft/cuda/7.5.18/bin:$PATH
 # Cambiar el shell
 #$ -S /bin/bash
 
-time nvprof --print-summary-per-gpu ./bin/sequential.exe images/input.png
+time nvprof --print-summary-per-gpu ./bin/${1}.exe images/input.png
