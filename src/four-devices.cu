@@ -13,7 +13,9 @@
 #define NUM_THREADS 1024
 #define NUM_BLOCKS 255
 #define IMG_CHANNELS 3
-#define NUM_DEVICES 4
+#ifndef NUM_DEVICES
+	#define NUM_DEVICES 4
+#endif
 
 //Optimal values 40, 550
 #define THRESH_9x9 20     //Bigger = more restrictive
@@ -32,27 +34,13 @@ public:
 
   Pixel() { x = y = 0; }
   Pixel(int _x, int _y) {x=_x; y=_y;}
-
-  string toString() {
-    ostringstream ss;
-    ss << "(" << x << ",\t" << y << ")";
-    return ss.str();
-
-  }
 };
 
 class Color
 {
 public:
   uc r,g,b,a;
-
   Color(uc _r, uc _g, uc _b, uc _a) { r=_r; g=_g; b=_b; a=_a; }
-
-  string toString() {
-    ostringstream ss;
-    ss << "(" << r << "," << g << "," << b << "," << a << ")";
-    return ss.str();
-  }
 };
 
 class Image
@@ -98,14 +86,7 @@ public:
       data[offset + 1] = c.g;
       data[offset + 2] = c.b;
   }
-
-  void invertColor(Pixel p) {
-      int offset = (p.y * _width + p.x) * 3;
-      data[offset + 0] = 255 - data[offset + 0];
-      data[offset + 1] = 255 - data[offset + 1];
-      data[offset + 2] = 255 - data[offset + 2];
-  }
-
+  
   uc getGrayScale(Pixel p) {
     return grayscale(getColor(p));
   }
@@ -131,77 +112,25 @@ public:
   {
     image = new Image(imageFile);
   }
-
-  // Innefficient Vector's code
-  /*void saveResult()
-  {
-      int boxStroke = 1;
-      printf("Saving result...\n");
-
-      uc *result = new uc[image->width() * image->height() * 3 * sizeof(uc)];
-      for(int y = 0; y < image->height(); ++y)
-      {
-          for(int x = 0; x < image->width();  ++x)
-          {
-              Pixel p(x,y);
-              bool isBoundary = false;
-              for(Box b : resultWindows)
-              {
-                  if(belongsTo(p, b))
-                  {
-                      if(abs(x - b.x) <= boxStroke ||
-                         abs(y - b.y) <= boxStroke ||
-                         abs(x - (b.x + b.w - 1)) <= boxStroke ||
-                         abs(y - (b.y + b.h - 1)) <= boxStroke)
-                      {
-                          isBoundary = true;
-                      }
-                  }
-              }
-
-              int offset = (y * image->width() + x) * 3;
-              if(isBoundary)
-              {
-                  result[offset + 0] = 255 - image->getColor(p).r;
-                  result[offset + 1] = 255 - image->getColor(p).g;
-                  result[offset + 2] = 255 - image->getColor(p).b;
-              }
-
-              else
-              {
-                  result[offset + 0] = image->getColor(p).r;
-                  result[offset + 1] = image->getColor(p).g;
-                  result[offset + 2] = image->getColor(p).b;
-              }
-          }
-      }
-
-      stbi_write_bmp("output/result.bmp", image->width(), image->height(), 3, result);
-  }*/
-
-  // Efficient Oscar's code
+  
   void saveResult() {
       printf("Saving result...\n");
 
       Color c = Color(0,255,0,255);
       for(Box b : resultWindows) {
           for (int i = b.x; i < b.x+b.w; ++i) {
-              //image->invertColor(Pixel(i,b.y));
               image->setColor(Pixel(i,b.y),c);
               image->setColor(Pixel(i,b.y+1),c);
           }
           for (int i = b.x; i < b.x+b.w; ++i) {
-              //image->invertColor(Pixel(i,b.y+b.h-1));
               image->setColor(Pixel(i,b.y+b.h-1),c);
               image->setColor(Pixel(i,b.y+b.h-2),c);
           }
           for (int i = b.y; i < b.y+b.h; ++i) {
-              //image->invertColor(Pixel(b.x,i));
               image->setColor(Pixel(b.x,i),c);
               image->setColor(Pixel(b.x+1,i),c);
           }
           for (int i = b.y; i < b.y+b.h; ++i) {
-              //image->invertColor(Pixel(b.x+b.w-1,i));
               image->setColor(Pixel(b.x+b.w-1,i),c);
               image->setColor(Pixel(b.x+b.w-2,i),c);
           }
@@ -209,12 +138,6 @@ public:
 
       stbi_write_bmp("output/result.bmp", image->width(), image->height(), 3, image->data);
   }
-
-private:
-  bool belongsTo(Pixel p, Box b) {
-      return p.x >= b.x && p.x <= b.x+b.w && p.y >= b.y && p.y <= b.y+b.h;
-  }
-
 };
 
 void saveImage(uc *img, int x, int y, int width, int height, int imgWidth, const char *filename)
@@ -281,6 +204,12 @@ __device__ void resize(uc *src, int srcx, int srcy, int srcw, int srch, int srcT
     float bh = float(srch) / dsth;
 
     int size = dsth * dstw;
+    if(threadIdx.x == 0)
+{
+	if(bw <= 1.0f || bh <= 1.0f) { printf("ALERT: %f,%f,%d,%d,%d,%d,%d,%d,%d,%d\n", bw, bh,
+                                          srcx, srcy, srcw, srch, dstx, dsty, dstw, dsth); }
+
+}
     for(int i = threadIdx.x; i < size; i += NUM_THREADS)
     {
         int dx = dstx + (i % dstw);
@@ -427,8 +356,8 @@ __global__ void detectFaces(uc *img, int winWidth, int winHeight, uc  *resultMat
     int ystep = (IMG_HEIGHT - winHeight) / NUM_BLOCKS + 1;
     if(threadIdx.x == 0 && blockIdx.x == 0 && blockIdx.y == 0)
     {
-    	//printf("Kernel width:%i, height:%i\n", winWidth, winHeight);
-        printf("step: %d\n", xstep);
+    	printf("Kernel width:%i, height:%i\n", winWidth, winHeight);
+        printf("steps: %d, %d\n", xstep, ystep);
     }
 
     // Window origin
@@ -466,8 +395,6 @@ __global__ void detectFaces(uc *img, int winWidth, int winHeight, uc  *resultMat
         sobelEdgeDetection(img, x, y, winWidth, winHeight, IMG_WIDTH, sobelImg);
         __syncthreads();
 
-	if(threadIdx.x == 0 && blockIdx.x == 0 && blockIdx.y == 0)
-        	printf("AQUIIIIIIIIIII: %i, %i\n", winWidth, winHeight);
 	resize(sobelImg,
                0, 0, winWidth, winHeight, winWidth,
                window30x30,
@@ -539,21 +466,13 @@ int main(int argc, char** argv)
 
   int deviceCount;
   cudaGetDeviceCount(&deviceCount);
-  if (deviceCount < 4) { printf("Not enough GPUs\n"); exit(-1); }
-
-
-  //Obtiene Memoria [pinned] en el host
-  //cudaMallocHost((float**)&h_x, numBytes);
-  //cudaMallocHost((float**)&h_y, numBytes);
-  //cudaMallocHost((float**)&H_y, numBytes);   // Solo se usa para comprobar el resultado
-
+  if (deviceCount < NUM_DEVICES) { printf("Not enough GPUs\n"); exit(-1); }
 
   // Get device memory
-
   dim3 dimGrid(NUM_BLOCKS, NUM_BLOCKS, 1);
   dim3 dimBlock(NUM_THREADS, 1, 1);
-  int winWidths[] = {35, 40, 45, 50, 55, 60, 65, 75, 85, 95, 105, 115, 125, 140, 150, 160, 170, 180, 190};
-  int winHeights[] = {35, 40, 45, 50, 55, 60, 65, 75, 85, 95, 105, 115, 125, 140, 150, 160, 170, 180, 190};
+  int winWidths[] = {35, 40, 45, 50, 55, 60, 65}; //, 75, 85, 95, 105, 115, 125, 140, 150, 160, 170, 180, 190};
+  int winHeights[] = {35, 40, 45, 50, 55, 60, 65}; //, 75, 85, 95, 105, 115, 125, 140, 150, 160, 170, 180, 190};
 
   printf("Getting memory in the host to allocate resultMatrix...\n");
   int numBytesResultMatrix = NUM_BLOCKS * NUM_BLOCKS * sizeof(uc);
@@ -570,8 +489,13 @@ int main(int argc, char** argv)
   {
       printf("Getting memory in device %d...\n", i);
       cudaSetDevice(i);
+      #ifndef USE_PINNED
       cudaMalloc((uc**)&d_imageGS[i], numBytesImage); CE();
       cudaMalloc((uc**)&d_resultMatrix[i], numBytesResultMatrix); CE();
+      #else
+      cudaMallocHost((uc**)&d_imageGS[i], numBytesImage); CE();
+      cudaMallocHost((uc**)&d_resultMatrix[i], numBytesResultMatrix); CE();
+      #endif	
   }
 
   // Copy data from host to device, execute kernel, copy data from device to host
@@ -579,8 +503,13 @@ int main(int argc, char** argv)
   {
       printf("Getting memory in device %d...\n", i);
       cudaSetDevice(i);
+      #ifndef USE_PINNED
       cudaMalloc((uc**)&d_imageGS[i], numBytesImage); CE();
       cudaMalloc((uc**)&d_resultMatrix[i], numBytesResultMatrix); CE();
+      #else
+      cudaMallocHost((uc**)&d_imageGS[i], numBytesImage); CE();
+      cudaMallocHost((uc**)&d_resultMatrix[i], numBytesResultMatrix); CE();
+      #endif
   }
 
   cudaEvent_t E0, E1;
@@ -614,7 +543,6 @@ int main(int argc, char** argv)
               cudaMemcpyAsync(d_imageGS[i], h_imageGS, numBytesImage, cudaMemcpyHostToDevice); //CE();
  	      printf("Executing kernel detectFaces on device %d...\n", i);
               detectFaces<<<dimGrid, dimBlock>>>(d_imageGS[i], winWidths[wi] / widthRatio, winHeights[hi] / heightRatio, d_resultMatrix[i]); //CE();
-              //detectFaces<<<dimGrid, dimBlock>>>(d_imageGS[i], winWidths[wi] / widthRatio, winWidths[wi] / widthRatio, d_resultMatrix[i]); //CE();
  	      printf("Retrieving resultMatrix from device %d to host...\n", i);
 	      cudaMemcpyAsync(h_resultMatrix[index], d_resultMatrix[i], numBytesResultMatrix, cudaMemcpyDeviceToHost); //CE();
      }
