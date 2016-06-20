@@ -540,14 +540,7 @@ int main(int argc, char** argv)
   if (deviceCount < 4) { printf("Not enough GPUs\n"); exit(-1); }
 
 
-  //Obtiene Memoria [pinned] en el host
-  //cudaMallocHost((float**)&h_x, numBytes);
-  //cudaMallocHost((float**)&h_y, numBytes);
-  //cudaMallocHost((float**)&H_y, numBytes);   // Solo se usa para comprobar el resultado
-
-
   // Get device memory
-
   dim3 dimGrid(NUM_BLOCKS, NUM_BLOCKS, 1);
   dim3 dimBlock(NUM_THREADS, 1, 1);
   int winWidths[] = {35, 40, 45, 50, 55, 60, 65, 75, 85, 95, 105, 115, 125, 140, 150, 160, 170, 180, 190};
@@ -603,7 +596,6 @@ int main(int argc, char** argv)
               cudaMemcpyAsync(d_imageGS[i], h_imageGS, numBytesImage, cudaMemcpyHostToDevice); //CE();
  	      printf("Executing kernel detectFaces on device %d...\n", i);
               detectFaces<<<dimGrid, dimBlock>>>(d_imageGS[i], winWidths[wi] / widthRatio, winHeights[hi] / heightRatio, d_resultMatrix[i]); //CE();
-              //detectFaces<<<dimGrid, dimBlock>>>(d_imageGS[i], winWidths[wi] / widthRatio, winWidths[wi] / widthRatio, d_resultMatrix[i]); //CE();
  	      printf("Retrieving resultMatrix from device %d to host...\n", i);
 	      cudaMemcpyAsync(h_resultMatrix[index], d_resultMatrix[i], numBytesResultMatrix, cudaMemcpyDeviceToHost); //CE();
      }

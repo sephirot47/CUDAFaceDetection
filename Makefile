@@ -1,7 +1,7 @@
 CUDA_HOME   = /Soft/cuda/7.5.18
 
 NVCC        = $(CUDA_HOME)/bin/nvcc
-NVCC_FLAGS  = -O3 -I$(CUDA_HOME)/include -arch=sm_20 -I$(CUDA_HOME)/sdk/CUDALibraries/common/inc
+NVCC_FLAGS  = -O2 -I$(CUDA_HOME)/include -arch=sm_20 -I$(CUDA_HOME)/sdk/CUDALibraries/common/inc
 LD_FLAGS    = -lcudart -Xlinker -rpath,$(CUDA_HOME)/lib64 -I$(CUDA_HOME)/sdk/CUDALibraries/common/lib
 
 default: bin/face_detect_seq.exe bin/face_detect_1gpu.exe bin/face_detect_4gpu.exe bin/face_detect_1gpu_pin.exe bin/face_detect_4gpu_pin.exe

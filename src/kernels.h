@@ -218,6 +218,7 @@ __global__ void detectFaces(uc *img, int winWidth, int winHeight, uc  *resultMat
 
         if(threadIdx.x == 0) {
             int hv2 = getSecondStageHeuristic(window30x30);
+	    printf("Heuristic: %i\n", hv2);
             if (hv2 <= THRESH_30x30)
             {
 		printf("Face detected with heuristic: %i\n", hv2);
