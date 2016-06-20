@@ -132,7 +132,6 @@ int main(int argc, char** argv)
     for(int i = 0; i < NUM_DEVICES; ++i)
     {
 	cudaSetDevice(i);
-	cudaMemcpyAsync(d_imageGS[i], h_imageGS, numBytesImage, cudaMemcpyHostToDevice); //CE();
 	for(int j = 0; j < windowsPerDevice; ++j)
 	{
 	    int index = (i*windowsPerDevice + j);
@@ -142,13 +141,16 @@ int main(int argc, char** argv)
 	    printf("index: %i\n", index);
 	    printf("wi: %i, hi: %i\n", wi, hi);
 	    printf("width: %i, height:%i\n", winWidths[wi], winHeights[hi]);
-	    printf("Copying matrices from host to device %d...\n", i);
 	    printf("Executing kernel detectFaces on device %d...\n", i);
-	    detectFaces<<<dimGrid, dimBlock>>>(d_imageGS[i], winWidths[wi] / widthRatio, winHeights[hi] / heightRatio, d_resultMatrix[i]); //CE();
+	    printf("Copying image from host to device %d...\n", i);
+            cudaMemcpyAsync(d_imageGS[i], h_imageGS, numBytesImage, cudaMemcpyHostToDevice); CE();
+	    detectFaces<<<dimGrid, dimBlock>>>(d_imageGS[i], winWidths[wi] / widthRatio, winHeights[hi] / heightRatio, d_resultMatrix[i]); CE();
 	    printf("Retrieving resultMatrix from device %d to host...\n", i);
-	    cudaMemcpyAsync(h_resultMatrix[index], d_resultMatrix[i], numBytesResultMatrix, cudaMemcpyDeviceToHost); //CE();
+	    cudaMemcpyAsync(h_resultMatrix[index], d_resultMatrix[i], numBytesResultMatrix, cudaMemcpyDeviceToHost); CE();
 	}
     }
+
+    printf("\n");
 
     for(int i = 0; i < NUM_DEVICES; ++i) { cudaSetDevice(i); cudaDeviceSynchronize(); }
 
@@ -192,7 +194,7 @@ int main(int argc, char** argv)
 	cudaFree(d_resultMatrix[i]);
     }
 
-    printf("Done.");
+    printf("Done.\n");
 }
 
 

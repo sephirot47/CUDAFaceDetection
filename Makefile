@@ -11,15 +11,15 @@ seq: bin/face_detect_seq.exe
 bin/stbi.o: src/stbi.cpp
 	$(NVCC) -std=c++11 -c src/stbi.cpp -o bin/stbi.o
 
-bin/face_detect_seq.o: src/face_detect_seq.cpp
+bin/face_detect_seq.o: src/face_detect_seq.cpp src/common.h
 	g++ -std=c++11 -c -o $@ src/face_detect_seq.cpp
-bin/face_detect_1gpu.o: src/face_detect_1gpu.cu
+bin/face_detect_1gpu.o: src/face_detect_1gpu.cu src/common.h src/kernels.h
 	$(NVCC) -std=c++11 -c -o $@ src/face_detect_1gpu.cu $(NVCC_FLAGS)
-bin/face_detect_4gpu.o: src/face_detect_4gpu.cu
+bin/face_detect_4gpu.o: src/face_detect_4gpu.cu src/common.h src/kernels.h
 	$(NVCC) -std=c++11 -c -o $@ src/face_detect_4gpu.cu $(NVCC_FLAGS)
-bin/face_detect_1gpu_pin.o: src/face_detect_1gpu_pin.cu
+bin/face_detect_1gpu_pin.o: src/face_detect_1gpu_pin.cu src/common.h src/kernels.h
 	$(NVCC) -std=c++11 -c -o $@ src/face_detect_1gpu_pin.cu $(NVCC_FLAGS)
-bin/face_detect_4gpu_pin.o: src/face_detect_4gpu_pin.cu
+bin/face_detect_4gpu_pin.o: src/face_detect_4gpu_pin.cu src/common.h src/kernels.h
 	$(NVCC) -std=c++11 -c -o $@ src/face_detect_4gpu_pin.cu $(NVCC_FLAGS)
 
 bin/face_detect_seq.exe: bin/stbi.o bin/face_detect_seq.o

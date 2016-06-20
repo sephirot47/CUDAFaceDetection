@@ -23,8 +23,8 @@
 #define IMG_CHANNELS 3
 
 //Optimal values 40, 550
-#define THRESH_9x9 20     //Bigger = more restrictive
-#define THRESH_30x30 475  //Bigger = less restrictive
+#define THRESH_9x9 40     //Bigger = more restrictive
+#define THRESH_30x30 550  //Bigger = less restrictive
 
 typedef unsigned char uc;
 using namespace std;
