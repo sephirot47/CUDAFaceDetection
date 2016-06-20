@@ -1,6 +1,6 @@
 #!/bin/bash
 
-make
+make ultraclean && make bin/face_detect_4gpu_pin.exe
 if [ "$?" != "0" ] ; then
 	echo "COMPILATION ERROR!"
 	exit 1
