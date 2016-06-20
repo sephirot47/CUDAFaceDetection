@@ -1,5 +1,5 @@
 #include "common.h"
-#include "kernels.h"
+#include "kernels.cu"
 
 void resize_seq(uc *src, int srcx, int srcy, int srcw, int srch, int srcTotalWidth, //x,y,width,height
                 uc *dst, int dstx, int dsty, int dstw, int dsth, int dstTotalWidth) //x,y,width,height
@@ -29,12 +29,12 @@ void resize_seq(uc *src, int srcx, int srcy, int srcw, int srch, int srcTotalWid
 __global__ void detectFaces(uc *img, int winWidth, int winHeight, uc  *resultMatrix, int resultIndex);
 
 void CheckCudaError(int line) {
-  cudaError_t error;
-  error = cudaGetLastError();
-  if (error) {
-    printf("(ERROR) - %s in %s at line %d\n", cudaGetErrorString(error), __FILE__, line);
-    exit(EXIT_FAILURE);
-  }
+    cudaError_t error;
+    error = cudaGetLastError();
+    if (error) {
+        printf("(ERROR) - %s in %s at line %d\n", cudaGetErrorString(error), __FILE__, line);
+        exit(EXIT_FAILURE);
+    }
 }
 
 #define CE() { CheckCudaError(__LINE__); }
@@ -132,7 +132,8 @@ int main(int argc, char** argv)
             detectFaces<<<dimGrid, dimBlock>>>(d_imageGS[i],
                                                winWidths[wi] / widthRatio,
                                                winHeights[hi] / heightRatio,
-                                               d_resultMatrix[i], j); CE();
+                                               d_resultMatrix[i],
+                                               j); CE();
         }
     }
 
@@ -143,7 +144,10 @@ int main(int argc, char** argv)
         cudaMemcpyAsync(h_resultMatrix[i], d_resultMatrix[i], numBytesResultMatrix, cudaMemcpyDeviceToHost);
     }
 
-    for(int i = 0; i < NUM_DEVICES; ++i) { cudaSetDevice(i); cudaDeviceSynchronize(); }
+    for(int i = 0; i < NUM_DEVICES; ++i) {
+        cudaSetDevice(i);
+        cudaDeviceSynchronize();
+    }
 
     cudaSetDevice(0);
     cudaEventRecord(E1, 0);
