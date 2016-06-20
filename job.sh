@@ -12,4 +12,3 @@ export PATH=/Soft/cuda/7.5.18/bin:$PATH
 
 #time nvprof --print-summary-per-gpu ./bin/${1}.exe images/input.png
 time nvprof ./bin/${1}.exe images/input.png
-

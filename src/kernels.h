@@ -168,8 +168,8 @@ __global__ void detectFaces(uc *img, int winWidth, int winHeight, uc  *resultMat
     int ystep = (IMG_HEIGHT - winHeight) / NUM_BLOCKS + 1;
     if(threadIdx.x == 0 && blockIdx.x == 0 && blockIdx.y == 0)
     {
-    	printf("Kernel width:%i, height:%i\n", winWidth, winHeight);
-        printf("steps: %d, %d\n", xstep, ystep);
+    	//printf("Kernel width:%i, height:%i\n", winWidth, winHeight);
+        //printf("steps: %d, %d\n", xstep, ystep);
     }
 
     // Window origin
@@ -220,7 +220,7 @@ __global__ void detectFaces(uc *img, int winWidth, int winHeight, uc  *resultMat
             int hv2 = getSecondStageHeuristic(window30x30);
             if (hv2 <= THRESH_30x30)
             {
-		printf("Face detected with heuristic: %i\n", hv2);
+	//	printf("Face detected with heuristic: %i\n", hv2);
                 // Save result! We detected a face yayy
                 resultMatrix[blockId] = 1;
             }

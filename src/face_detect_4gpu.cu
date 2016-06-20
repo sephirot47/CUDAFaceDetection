@@ -125,22 +125,28 @@ int main(int argc, char** argv)
 
   for(int i = 0; i < NUM_DEVICES; ++i)
   {
-      cudaSetDevice(i);
-      for(int j = 0; j < windowsPerDevice; ++j)
+      	cudaSetDevice(i);
+  	cudaMemcpy(d_imageGS[i], h_imageGS, numBytesImage, cudaMemcpyHostToDevice); //CE();
+  }
+
+  for(int j = 0; j < windowsPerDevice; ++j)
+  {
+      for(int i = 0; i < NUM_DEVICES; ++i)
       {
           int index = (i*windowsPerDevice + j);
 	  int wi = index / numWindowsWidth;
 	  int hi = index % numWindowsHeight;
-          printf("Copying image from host to device %d...\n", i);
-          cudaMemcpyAsync(d_imageGS[i], h_imageGS, numBytesImage, cudaMemcpyHostToDevice); CE();
- 	  printf("Executing kernel detectFaces on device %d...\n", i);
-          detectFaces<<<dimGrid, dimBlock>>>(d_imageGS[i], winWidths[wi] / widthRatio, winHeights[hi] / heightRatio, d_resultMatrix[i]); CE();
- 	  printf("Retrieving resultMatrix from device %d to host...\n", i);
-	  cudaMemcpyAsync(h_resultMatrix[index], d_resultMatrix[i], numBytesResultMatrix, cudaMemcpyDeviceToHost); CE();
+      	  cudaSetDevice(i);
+          //printf("Copying image from host to device %d...\n", i);
+ 	  //printf("Executing kernel detectFaces on device %d...\n", i);
+          detectFaces<<<dimGrid, dimBlock>>>(d_imageGS[i], winWidths[wi] / widthRatio, winHeights[hi] / heightRatio, d_resultMatrix[i]); //CE();
+ 	  //printf("Retrieving resultMatrix from device %d to host...\n", i);
+	  cudaMemcpyAsync(h_resultMatrix[index], d_resultMatrix[i], numBytesResultMatrix, cudaMemcpyDeviceToHost); //CE();
       }
   }
 
-  for(int i = 0; i < NUM_DEVICES; ++i) { cudaSetDevice(i); cudaDeviceSynchronize(); }
+  //for(int i = 0; i < NUM_DEVICES; ++i) { cudaSetDevice(i); cudaDeviceSynchronize(); }
+  for(int i = NUM_DEVICES; i >= 0; --i) { cudaSetDevice(i); cudaDeviceSynchronize(); }
 
   cudaSetDevice(0);
   cudaEventRecord(E1, 0);
@@ -148,7 +154,7 @@ int main(int argc, char** argv)
   float elapsedTime;
   cudaEventElapsedTime(&elapsedTime,  E0, E1);
   printf("Kernel elapsed time: %4.6f\n", elapsedTime);
-
+exit(0);
   // Process results
   for(int k = 0; k < numWindows; ++k)
   {
