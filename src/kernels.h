@@ -162,7 +162,7 @@ __device__ int getSecondStageHeuristic(uc *img) {
     return sumDiff;
 }
 
-__global__ void detectFaces(uc *img, int winWidth, int winHeight, uc  *resultMatrix)
+__global__ void detectFaces(uc *img, int winWidth, int winHeight, uc  *resultMatrix, int resultIndex)
 {
     int xstep = (IMG_WIDTH - winWidth) / NUM_BLOCKS + 1;
     int ystep = (IMG_HEIGHT - winHeight) / NUM_BLOCKS + 1;
@@ -177,9 +177,10 @@ __global__ void detectFaces(uc *img, int winWidth, int winHeight, uc  *resultMat
     int y = blockIdx.y * ystep;
     int blockId = blockIdx.y * NUM_BLOCKS + blockIdx.x;
 
+    int resultOffset = resultIndex * NUM_BLOCKS * NUM_BLOCKS;
     if(x + winWidth > IMG_WIDTH || y + winHeight > IMG_HEIGHT)
     {
-        resultMatrix[blockId] = 0;
+        resultMatrix[blockId + resultOffset] = 0;
         return;
     }
 
@@ -222,10 +223,10 @@ __global__ void detectFaces(uc *img, int winWidth, int winHeight, uc  *resultMat
             {
 	//	printf("Face detected with heuristic: %i\n", hv2);
                 // Save result! We detected a face yayy
-                resultMatrix[blockId] = 1;
+                resultMatrix[blockId + resultOffset] = 1;
             }
-            else resultMatrix[blockId] = 0;
+            else resultMatrix[blockId + resultOffset] = 0;
         }
     }
-    else resultMatrix[blockId] = 0;
+    else resultMatrix[blockId + resultOffset] = 0;
 }

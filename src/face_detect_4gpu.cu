@@ -26,7 +26,7 @@ void resize_seq(uc *src, int srcx, int srcy, int srcw, int srch, int srcTotalWid
     }
 }
 
-__global__ void detectFaces(uc *img, int winWidth, int winHeight, uc  *resultMatrix);
+__global__ void detectFaces(uc *img, int winWidth, int winHeight, uc  *resultMatrix, int resultIndex);
 
 void CheckCudaError(int line) {
   cudaError_t error;
@@ -94,10 +94,10 @@ int main(int argc, char** argv)
 
   // Get host memory
   printf("Getting memory in the host to allocate resultMatrix...\n");
-  int numBytesResultMatrix = NUM_BLOCKS * NUM_BLOCKS * sizeof(uc);
-  uc *h_resultMatrix[numWindows];
-  for(int i = 0; i < numWindows; ++i)
-      h_resultMatrix[i]= (uc*) malloc(numBytesResultMatrix);
+  int numBytesResultMatrix = NUM_BLOCKS * NUM_BLOCKS * sizeof(uc) * windowsPerDevice;
+  uc *h_resultMatrix[NUM_DEVICES];
+  for(int i = 0; i < NUM_DEVICES; ++i)
+      h_resultMatrix[i] = (uc*) malloc(numBytesResultMatrix);
   
   // Get memory in every device
   uc *d_imageGS[NUM_DEVICES], *d_resultMatrix[NUM_DEVICES];
@@ -115,38 +115,35 @@ int main(int argc, char** argv)
   }
 
 
-  // Copy data from host to device, execute kernel, copy data from device to host
+  // Copy data from host to device, execute kernel
   cudaSetDevice(0);
   cudaEvent_t E0, E1;
   cudaEventCreate(&E0);
   cudaEventCreate(&E1); 
 
   cudaEventRecord(E0, 0);
-
+  
   for(int i = 0; i < NUM_DEVICES; ++i)
   {
-      	cudaSetDevice(i);
-  	cudaMemcpy(d_imageGS[i], h_imageGS, numBytesImage, cudaMemcpyHostToDevice); //CE();
-  }
-
-  for(int j = 0; j < windowsPerDevice; ++j)
-  {
-      for(int i = 0; i < NUM_DEVICES; ++i)
-      {
+     cudaSetDevice(i);
+     cudaMemcpyAsync(d_imageGS[i], h_imageGS, numBytesImage, cudaMemcpyHostToDevice); //CE();
+     for(int j = 0; j < windowsPerDevice; ++j)
+     {
           int index = (i*windowsPerDevice + j);
 	  int wi = index / numWindowsWidth;
 	  int hi = index % numWindowsHeight;
-      	  cudaSetDevice(i);
-          //printf("Copying image from host to device %d...\n", i);
- 	  //printf("Executing kernel detectFaces on device %d...\n", i);
-          detectFaces<<<dimGrid, dimBlock>>>(d_imageGS[i], winWidths[wi] / widthRatio, winHeights[hi] / heightRatio, d_resultMatrix[i]); //CE();
- 	  //printf("Retrieving resultMatrix from device %d to host...\n", i);
-	  cudaMemcpyAsync(h_resultMatrix[index], d_resultMatrix[i], numBytesResultMatrix, cudaMemcpyDeviceToHost); //CE();
-      }
+          detectFaces<<<dimGrid, dimBlock>>>(d_imageGS[i], winWidths[wi] / widthRatio, winHeights[hi] / heightRatio, d_resultMatrix[i], j); //CE();
+     }
+  }
+ 
+  // Retrieve results from device to host async
+  for(int i = 0; i < NUM_DEVICES; ++i)
+  {
+     cudaSetDevice(i);
+     cudaMemcpyAsync(h_resultMatrix[i], d_resultMatrix[i], numBytesResultMatrix, cudaMemcpyDeviceToHost);
   }
 
-  //for(int i = 0; i < NUM_DEVICES; ++i) { cudaSetDevice(i); cudaDeviceSynchronize(); }
-  for(int i = NUM_DEVICES; i >= 0; --i) { cudaSetDevice(i); cudaDeviceSynchronize(); }
+  for(int i = 0; i < NUM_DEVICES; ++i) { cudaSetDevice(i); cudaDeviceSynchronize(); }
 
   cudaSetDevice(0);
   cudaEventRecord(E1, 0);
@@ -154,7 +151,7 @@ int main(int argc, char** argv)
   float elapsedTime;
   cudaEventElapsedTime(&elapsedTime,  E0, E1);
   printf("Kernel elapsed time: %4.6f\n", elapsedTime);
-exit(0);
+  
   // Process results
   for(int k = 0; k < numWindows; ++k)
   {
@@ -162,7 +159,10 @@ exit(0);
     {
         for(int j = 0; j < NUM_BLOCKS; ++j)
         {
-	    if (h_resultMatrix[k][i * NUM_BLOCKS + j] == 1) 
+	    int numDevice = k / windowsPerDevice;
+	    int indexInRM = k % windowsPerDevice;
+	    int resultOffset = indexInRM * NUM_BLOCKS * NUM_BLOCKS;
+	    if (h_resultMatrix[numDevice][i * NUM_BLOCKS + j + resultOffset] == 1) 
 	    {
 	         int wi = k / numWindowsWidth;
 	         int hi = k % numWindowsHeight;
