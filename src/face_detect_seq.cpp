@@ -194,10 +194,8 @@ int main(int argc, char** argv)
 	    0, 0, IMG_WIDTH, IMG_HEIGHT, IMG_WIDTH);
 
     //Original 100,100
-    int winWidths[] = {35, 40, 45, 50, 55, 60, 65};
-    //int winWidths[] = {35, 40, 45, 50, 55, 60, 65, 75, 85, 95, 105, 115, 125, 140, 150, 160, 170, 180, 190};
-    int winHeights[] = {35, 40, 45, 50, 55, 60, 65};
-    //int winHeights[] = {35, 40, 45, 50, 55, 60, 65, 75, 85, 95, 105, 115, 125, 140, 150, 160, 170, 180, 190};
+    int winWidths[] = {35, 40, 45, 50, 55, 60, 65, 70, 75, 85, 95, 105, 115, 125, 140, 150, 160, 170, 180, 190};
+    int winHeights[] = {35, 40, 45, 50, 55, 60, 65, 70, 75, 85, 95, 105, 115, 125, 140, 150, 160, 170, 180, 190};
 
     const int numWindowsWidth  = (sizeof(winWidths) / sizeof(int));
     const int numWindowsHeight = (sizeof(winHeights) / sizeof(int));
@@ -209,10 +207,10 @@ int main(int argc, char** argv)
     for(int blockId_y = 0; blockId_y < NUM_BLOCKS; ++blockId_y) {
     for(int i = 0; i < numWindowsWidth; ++i) {
     for(int j = 0; j < numWindowsHeight; ++j) {
-	int winWidth = winWidths[i];
-	int winHeight = winHeights[j];
-	int xstep = (IMG_WIDTH - winWidth/widthRatio) / NUM_BLOCKS + 1;
-	int ystep = (IMG_HEIGHT - winHeight/heightRatio) / NUM_BLOCKS + 1;
+	int winWidth = winWidths[i] / widthRatio;
+	int winHeight = winHeights[j] / heightRatio;
+	int xstep = (IMG_WIDTH - winWidth) / NUM_BLOCKS + 1;
+	int ystep = (IMG_HEIGHT - winHeight) / NUM_BLOCKS + 1;
 	int x = blockId_x * xstep;
 	int y = blockId_y * ystep;
 	

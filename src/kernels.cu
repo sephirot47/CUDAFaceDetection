@@ -166,11 +166,6 @@ __global__ void detectFaces(uc *img, int winWidth, int winHeight, uc  *resultMat
 {
     int xstep = (IMG_WIDTH - winWidth) / NUM_BLOCKS + 1;
     int ystep = (IMG_HEIGHT - winHeight) / NUM_BLOCKS + 1;
-    if(threadIdx.x == 0 && blockIdx.x == 0 && blockIdx.y == 0)
-    {
-    	//printf("Kernel width:%i, height:%i\n", winWidth, winHeight);
-        //printf("steps: %d, %d\n", xstep, ystep);
-    }
 
     // Window origin
     int x = blockIdx.x * xstep;
@@ -229,3 +224,67 @@ __global__ void detectFaces(uc *img, int winWidth, int winHeight, uc  *resultMat
     }
     else resultMatrix[blockId + resultOffset] = 0;
 }
+
+
+__global__ void detectFaces(uc *img, int winWidth, int winHeight, uc  *resultMatrix)
+{
+    int xstep = (IMG_WIDTH - winWidth) / NUM_BLOCKS + 1;
+    int ystep = (IMG_HEIGHT - winHeight) / NUM_BLOCKS + 1;
+
+    // Window origin
+    int x = blockIdx.x * xstep;
+    int y = blockIdx.y * ystep;
+    int blockId = blockIdx.y * NUM_BLOCKS + blockIdx.x;
+
+    if(x + winWidth > IMG_WIDTH || y + winHeight > IMG_HEIGHT)
+    {
+        resultMatrix[blockId] = 0;
+        return;
+    }
+
+    // FIRST HEURISTIC
+    __shared__ uc window30x30[30*30];
+    resize(img,
+           x, y, winWidth, winHeight, IMG_WIDTH,
+           window30x30,
+           0, 0, 9, 9, 9);
+    __syncthreads();
+
+    histogramEqualization(window30x30, 0, 0, 9, 9, 9);
+    __syncthreads();
+    
+    __shared__ uc hv1;
+    if(threadIdx.x == 0) {
+        hv1 = getFirstStageHeuristic(window30x30);
+    }
+    __syncthreads();
+
+    if (hv1 >= THRESH_9x9)
+    {
+        // SECOND HEURISTIC
+        __shared__ uc sobelImg[200*200];
+        sobelEdgeDetection(img, x, y, winWidth, winHeight, IMG_WIDTH, sobelImg);
+        __syncthreads();
+
+	resize(sobelImg,
+               0, 0, winWidth, winHeight, winWidth,
+               window30x30,
+               0, 0, 30, 30, 30);
+        __syncthreads();
+
+        toBlackAndWhite(window30x30, 0, 0, 30, 30, 30);
+        __syncthreads();
+
+        if(threadIdx.x == 0) {
+            int hv2 = getSecondStageHeuristic(window30x30);
+            if (hv2 <= THRESH_30x30)
+            {
+                // Save result! We detected a face yayy
+                resultMatrix[blockId] = 1;
+            }
+            else resultMatrix[blockId] = 0;
+        }
+    }
+    else resultMatrix[blockId] = 0;
+}
+
