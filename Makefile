@@ -4,29 +4,44 @@ NVCC        = $(CUDA_HOME)/bin/nvcc
 NVCC_FLAGS  = -O3 -I$(CUDA_HOME)/include -arch=sm_20 -I$(CUDA_HOME)/sdk/CUDALibraries/common/inc
 LD_FLAGS    = -lcudart -Xlinker -rpath,$(CUDA_HOME)/lib64 -I$(CUDA_HOME)/sdk/CUDALibraries/common/lib
 
-default: bin/face_detect_seq.exe bin/face_detect_1gpu.exe bin/face_detect_4gpu.exe bin/face_detect_4gpu_pin.exe
+SEQ         = bin/face_detect_seq
+1GPU        = bin/face_detect_1gpu
+4GPU_V1     = bin/face_detect_4gpu_v1
+4GPU_PIN_V1 = bin/face_detect_4gpu_pin_v1
+4GPU_V2     = bin/face_detect_4gpu_v2
+4GPU_PIN_V2 = bin/face_detect_4gpu_pin_v2
 
-seq: bin/face_detect_seq.exe
+default: $(SEQ).exe $(1GPU).exe $(4GPU_V1).exe $(4GPU_PIN_V1).exe $(4GPU_V2).exe $(4GPU_PIN_V2).exe
+
+seq: $(SEQ).exe
 
 bin/stbi.o: src/stbi.cpp
 	$(NVCC) -std=c++11 -c $< -o $@
 
-bin/face_detect_seq.o: src/face_detect_seq.cpp src/common.h
+$(SEQ).o: src/face_detect_seq.cpp src/common.h
 	g++ -std=c++11 -c -o $@ $<
-bin/face_detect_1gpu.o: src/face_detect_1gpu.cu src/common.h src/kernels.cu
+$(1GPU).o: src/face_detect_1gpu.cu src/common.h src/kernels.cu
 	$(NVCC) -std=c++11 -c -o $@ $< $(NVCC_FLAGS)
-bin/face_detect_4gpu.o: src/face_detect_4gpu.cu src/common.h src/kernels.cu
+$(4GPU_V1).o: src/face_detect_4gpu_v1.cu src/common.h src/kernels.cu
 	$(NVCC) -std=c++11 -c -o $@ $< $(NVCC_FLAGS)
-bin/face_detect_4gpu_pin.o: src/face_detect_4gpu_pin.cu src/common.h src/kernels.cu
+$(4GPU_PIN_V1).o: src/face_detect_4gpu_pin_v1.cu src/common.h src/kernels.cu
+	$(NVCC) -std=c++11 -c -o $@ $< $(NVCC_FLAGS)
+$(4GPU_V2).o: src/face_detect_4gpu_v2.cu src/common.h src/kernels.cu
+	$(NVCC) -std=c++11 -c -o $@ $< $(NVCC_FLAGS)
+$(4GPU_PIN_V2).o: src/face_detect_4gpu_pin_v2.cu src/common.h src/kernels.cu
 	$(NVCC) -std=c++11 -c -o $@ $< $(NVCC_FLAGS)
 
-bin/face_detect_seq.exe: bin/face_detect_seq.o bin/stbi.o
+$(SEQ).exe: $(SEQ).o bin/stbi.o
 	g++ -std=c++11 $^ -o $@
-bin/face_detect_1gpu.exe: bin/face_detect_1gpu.o bin/stbi.o
+$(1GPU).exe: $(1GPU).o bin/stbi.o
 	$(NVCC) $^ -o $@ $(LD_FLAGS)
-bin/face_detect_4gpu.exe: bin/face_detect_4gpu.o bin/stbi.o
+$(4GPU_V1).exe: $(4GPU_V1).o bin/stbi.o
 	$(NVCC) $^ -o $@ $(LD_FLAGS)
-bin/face_detect_4gpu_pin.exe: bin/face_detect_4gpu_pin.o bin/stbi.o
+$(4GPU_PIN_V1).exe: $(4GPU_PIN_V1).o bin/stbi.o
+	$(NVCC) $^ -o $@ $(LD_FLAGS)
+$(4GPU_V2).exe: $(4GPU_V2).o bin/stbi.o
+	$(NVCC) $^ -o $@ $(LD_FLAGS)
+$(4GPU_PIN_V2).exe: $(4GPU_PIN_V2).o bin/stbi.o
 	$(NVCC) $^ -o $@ $(LD_FLAGS)
 
 clean:
